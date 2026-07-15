@@ -1,0 +1,11 @@
+import React,{useEffect,useRef,useState}from'react';
+import{AnimatePresence,motion}from'framer-motion';
+import{Bell}from'lucide-react';
+import{useAppContext}from'../context/AppContext';
+export const GlobalNotificationBell:React.FC=()=>{
+ const{notifications,markNotificationRead}=useAppContext();const[open,setOpen]=useState(false);const ref=useRef<HTMLDivElement>(null);
+ useEffect(()=>{const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};document.addEventListener('mousedown',close);return()=>document.removeEventListener('mousedown',close)},[]);
+ const unread=notifications.filter(n=>!n.read).length;
+ return <div ref={ref} className="relative"><button onClick={()=>setOpen(!open)} className="relative p-2.5 text-gray-400 hover:text-white bg-slate-900 border border-slate-800 rounded-xl"><Bell className="h-4 w-4"/>{unread>0&&<span className="absolute top-1 right-1 h-2 w-2 bg-rose-500 rounded-full animate-pulse"/>}</button><AnimatePresence>{open&&<motion.div initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} className="absolute right-0 mt-3 w-80 bg-slate-900 border border-white/5 rounded-2xl shadow-2xl p-4 z-50"><div className="flex justify-between pb-3 border-b border-white/5"><h4 className="font-bold text-xs uppercase font-mono">Copilot Notifications</h4>{unread>0&&<button onClick={()=>markNotificationRead()} className="text-[10px] text-cyan-400">Mark all read</button>}</div><div className="mt-3 max-h-72 overflow-y-auto space-y-2">{notifications.length?notifications.map(n=><button key={n.id} onClick={()=>markNotificationRead(n.id)} className={`w-full text-left p-3 rounded-xl border ${n.read?'bg-slate-950/40 border-white/5 opacity-60':'bg-slate-950 border-violet-500/20'}`}><div className="flex justify-between gap-2"><span className="text-xs font-bold text-white">{n.message}</span><span className="text-[9px] text-gray-500">{new Date(n.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></div>{n.sub&&<p className="text-[10px] text-gray-400 mt-1">{n.sub}</p>}</button>):<p className="text-xs text-gray-500 text-center py-6">No notifications yet.</p>}</div></motion.div>}</AnimatePresence></div>;
+};
+export default GlobalNotificationBell;

@@ -1,0 +1,262 @@
+[INFO] Error stacktraces are turned on.
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------------< com.novaos:api >---------------------------
+[INFO] Building NovaOS AI Backend 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ api ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ api ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 33 source files with javac [debug release 21] to target\classes
+[INFO] Annotation processing is enabled because one or more processors were found
+  on the class path. A future release of javac may disable annotation processing
+  unless at least one processor is specified by name (-processor), or a search
+  path is specified (--processor-path, --processor-module-path), or annotation
+  processing is enabled explicitly (-proc:only, -proc:full).
+  Use -Xlint:-options to suppress this message.
+  Use -proc:none to disable annotation processing.
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[14,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[15,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[22,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[14,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[15,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[22,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[25,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[26,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[27,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[28,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[29,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[30,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[31,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[32,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[34,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[35,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[36,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[37,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[38,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[39,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[40,1] class, interface, enum, or record expected
+[INFO] 84 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.579 s
+[INFO] Finished at: 2026-07-13T15:58:38+05:30
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project api: Compilation failure: Compilation failure: 
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[14,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/controller/ApiController.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[15,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[22,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/ai/GeminiService.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[1,1] illegal character: '\ufeff'
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[1,10] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[3,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[4,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[5,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[6,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[7,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[8,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[9,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[10,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[11,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[12,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[13,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[14,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[15,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[16,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[17,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[18,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[19,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[20,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[21,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[22,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[23,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[24,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[25,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[26,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[27,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[28,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[29,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[30,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[31,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[32,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[34,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[35,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[36,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[37,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[38,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[39,1] class, interface, enum, or record expected
+[ERROR] /C:/Users/namra/Downloads/NovaOS-merged/novaos/backend/src/main/java/com/novaos/api/service/HiringWorkflowService.java:[40,1] class, interface, enum, or record expected
+[ERROR] -> [Help 1]
+org.apache.maven.lifecycle.LifecycleExecutionException: Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project api: Compilation failure
+    at org.apache.maven.lifecycle.internal.MojoExecutor.doExecute2 (MojoExecutor.java:333)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.doExecute (MojoExecutor.java:316)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:212)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:174)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.access$000 (MojoExecutor.java:75)
+    at org.apache.maven.lifecycle.internal.MojoExecutor$1.run (MojoExecutor.java:162)
+    at org.apache.maven.plugin.DefaultMojosExecutionStrategy.execute (DefaultMojosExecutionStrategy.java:39)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:159)
+    at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject (LifecycleModuleBuilder.java:105)
+    at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject (LifecycleModuleBuilder.java:73)
+    at org.apache.maven.lifecycle.internal.builder.singlethreaded.SingleThreadedBuilder.build (SingleThreadedBuilder.java:53)
+    at org.apache.maven.lifecycle.internal.LifecycleStarter.execute (LifecycleStarter.java:118)
+    at org.apache.maven.DefaultMaven.doExecute (DefaultMaven.java:261)
+    at org.apache.maven.DefaultMaven.doExecute (DefaultMaven.java:173)
+    at org.apache.maven.DefaultMaven.execute (DefaultMaven.java:101)
+    at org.apache.maven.cli.MavenCli.execute (MavenCli.java:906)
+    at org.apache.maven.cli.MavenCli.doMain (MavenCli.java:283)
+    at org.apache.maven.cli.MavenCli.main (MavenCli.java:206)
+    at jdk.internal.reflect.DirectMethodHandleAccessor.invoke (DirectMethodHandleAccessor.java:103)
+    at java.lang.reflect.Method.invoke (Method.java:580)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.launchEnhanced (Launcher.java:255)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.launch (Launcher.java:201)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.mainWithExitCode (Launcher.java:361)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.main (Launcher.java:314)
+Caused by: org.apache.maven.plugin.compiler.CompilationFailureException: Compilation failure
+    at org.apache.maven.plugin.compiler.AbstractCompilerMojo.execute (AbstractCompilerMojo.java:1212)
+    at org.apache.maven.plugin.compiler.CompilerMojo.execute (CompilerMojo.java:193)
+    at org.apache.maven.plugin.DefaultBuildPluginManager.executeMojo (DefaultBuildPluginManager.java:126)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.doExecute2 (MojoExecutor.java:328)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.doExecute (MojoExecutor.java:316)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:212)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:174)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.access$000 (MojoExecutor.java:75)
+    at org.apache.maven.lifecycle.internal.MojoExecutor$1.run (MojoExecutor.java:162)
+    at org.apache.maven.plugin.DefaultMojosExecutionStrategy.execute (DefaultMojosExecutionStrategy.java:39)
+    at org.apache.maven.lifecycle.internal.MojoExecutor.execute (MojoExecutor.java:159)
+    at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject (LifecycleModuleBuilder.java:105)
+    at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject (LifecycleModuleBuilder.java:73)
+    at org.apache.maven.lifecycle.internal.builder.singlethreaded.SingleThreadedBuilder.build (SingleThreadedBuilder.java:53)
+    at org.apache.maven.lifecycle.internal.LifecycleStarter.execute (LifecycleStarter.java:118)
+    at org.apache.maven.DefaultMaven.doExecute (DefaultMaven.java:261)
+    at org.apache.maven.DefaultMaven.doExecute (DefaultMaven.java:173)
+    at org.apache.maven.DefaultMaven.execute (DefaultMaven.java:101)
+    at org.apache.maven.cli.MavenCli.execute (MavenCli.java:906)
+    at org.apache.maven.cli.MavenCli.doMain (MavenCli.java:283)
+    at org.apache.maven.cli.MavenCli.main (MavenCli.java:206)
+    at jdk.internal.reflect.DirectMethodHandleAccessor.invoke (DirectMethodHandleAccessor.java:103)
+    at java.lang.reflect.Method.invoke (Method.java:580)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.launchEnhanced (Launcher.java:255)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.launch (Launcher.java:201)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.mainWithExitCode (Launcher.java:361)
+    at org.codehaus.plexus.classworlds.launcher.Launcher.main (Launcher.java:314)
+[ERROR] 
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
+Exit code: 1 

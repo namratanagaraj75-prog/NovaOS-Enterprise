@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+set -e
+
+BASE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+MAVEN_VERSION="3.9.9"
+MAVEN_DIR="$BASE_DIR/.mvn/wrapper/apache-maven-$MAVEN_VERSION"
+MAVEN_CMD="$MAVEN_DIR/bin/mvn"
+MAVEN_ARCHIVE="$BASE_DIR/.mvn/wrapper/apache-maven-$MAVEN_VERSION-bin.tar.gz"
+MAVEN_URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN_VERSION/apache-maven-$MAVEN_VERSION-bin.tar.gz"
+
+if [ ! -x "$MAVEN_CMD" ]; then
+  echo "Downloading Apache Maven $MAVEN_VERSION..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$MAVEN_URL" -o "$MAVEN_ARCHIVE"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$MAVEN_URL" -O "$MAVEN_ARCHIVE"
+  else
+    echo "curl or wget is required to bootstrap Maven" >&2
+    exit 1
+  fi
+  tar -xzf "$MAVEN_ARCHIVE" -C "$BASE_DIR/.mvn/wrapper"
+fi
+
+exec "$MAVEN_CMD" "$@"
