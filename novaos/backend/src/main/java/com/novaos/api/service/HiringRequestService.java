@@ -186,6 +186,21 @@ public class HiringRequestService {
             WriteBatch batch=db.batch(); batch.update(db.collection("hiringRequests").document(id),updates);
             batch.set(db.collection("approvals").document(id+"-"+approverRole),approval,SetOptions.merge());
             batch.create(db.collection("auditLogs").document(id+"-"+transition.activityAction()+"-"+UUID.randomUUID()),audit(id,transition.activityAction(),actor,transition.details()));
+
+            // Synchronize status updates to the corresponding workflowRequests document
+            var workflowRef = db.collection("workflowRequests").document(id);
+            if (workflowRef.get().get().exists()) {
+                Map<String, Object> workflowUpdates = new HashMap<>();
+                String approvedState = approverRole.equals("HIRING_MANAGER") ? "MANAGER_APPROVED" : approverRole + "_APPROVED";
+                String nextState = approverRole.equals("HIRING_MANAGER") ? "LEGAL_PENDING" 
+                                 : approverRole.equals("LEGAL") ? "FINANCE_PENDING" 
+                                 : "OFFER_GENERATING";
+                workflowUpdates.put("state", "APPROVE".equals(action) ? (transition.finalApproval() ? "OFFER_GENERATED" : nextState) : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
+                workflowUpdates.put("lastCompletedState", "APPROVE".equals(action) ? approvedState : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
+                workflowUpdates.put("updatedAt", java.time.Instant.now().toString());
+                batch.update(workflowRef, workflowUpdates);
+            }
+
             batch.commit().get();
             
             String candidateName = d.getString("candidateName");

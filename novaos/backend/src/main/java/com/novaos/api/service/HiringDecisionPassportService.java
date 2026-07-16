@@ -202,6 +202,60 @@ public class HiringDecisionPassportService {
                         notification(requestId, role.equals("HIRING_MANAGER") ? "LEGAL" : "FINANCE",
                                 nextState.replace('_', ' '), requestId));
             }
+
+            // Synchronize status updates to the corresponding hiringRequests document
+            var hiringRef = db.collection("hiringRequests").document(requestId);
+            if (hiringRef.get().get().exists()) {
+                Map<String, Object> hiringUpdates = new HashMap<>();
+                String prefix = role.equals("HIRING_MANAGER") ? "manager" : role.toLowerCase(Locale.ROOT);
+                hiringUpdates.put(prefix + "ApprovalStatus", "APPROVED");
+                hiringUpdates.put(prefix + "ApprovedByName", actor.get("name"));
+                hiringUpdates.put(prefix + "ApprovedByEmail", actor.get("email"));
+                hiringUpdates.put(prefix + "ApprovedBy", actor.get("uid"));
+                hiringUpdates.put(prefix + "ApprovedAt", com.google.cloud.Timestamp.now());
+                hiringUpdates.put(prefix + "ApprovalComment", request == null ? "" : Objects.toString(request.comment(), ""));
+
+                String hiringNextStatus = role.equals("HIRING_MANAGER") ? "PENDING_LEGAL_APPROVAL" 
+                                        : role.equals("LEGAL") ? "PENDING_FINANCE_APPROVAL" 
+                                        : "APPROVALS_COMPLETED";
+                hiringUpdates.put("status", hiringNextStatus);
+                hiringUpdates.put("updatedAt", com.google.cloud.Timestamp.now());
+                hiringUpdates.put("currentApprovalIndex", role.equals("HIRING_MANAGER") ? 1 : role.equals("LEGAL") ? 2 : 3);
+
+                String hiringNextRole = role.equals("HIRING_MANAGER") ? "LEGAL" 
+                                      : role.equals("LEGAL") ? "FINANCE" 
+                                      : null;
+                if (hiringNextRole != null) {
+                    hiringUpdates.put("currentApproverRole", hiringNextRole);
+                    String nextPrefix = hiringNextRole.toLowerCase(Locale.ROOT);
+                    hiringUpdates.put(nextPrefix + "ApprovalStatus", "PENDING");
+                } else {
+                    hiringUpdates.put("currentApproverRole", com.google.cloud.firestore.FieldValue.delete());
+                }
+                hiringUpdates.put("readBy", com.google.cloud.firestore.FieldValue.delete());
+
+                // Record status change event to activityHistory
+                String actionName = role.equals("HIRING_MANAGER") ? "MANAGER_APPROVED" : role + "_APPROVED";
+                String details = (role.equals("HIRING_MANAGER") ? "Hiring manager" : (role.substring(0,1) + role.substring(1).toLowerCase(Locale.ROOT))) + " approved the request." 
+                               + (hiringNextRole == null ? " All required approvals are complete." : " Routed to " + (hiringNextRole.substring(0,1) + hiringNextRole.substring(1).toLowerCase(Locale.ROOT)) + ".");
+
+                Map<String, Object> histEvent = new HashMap<>();
+                histEvent.put("action", actionName);
+                histEvent.put("eventType", actionName);
+                histEvent.put("performedBy", actor.get("uid"));
+                histEvent.put("performedByName", actor.get("name"));
+                histEvent.put("actorName", actor.get("name"));
+                histEvent.put("actorEmail", Objects.toString(actor.get("email"), ""));
+                histEvent.put("actorRole", role);
+                histEvent.put("timestamp", com.google.cloud.Timestamp.now());
+                histEvent.put("details", details);
+                histEvent.put("message", details);
+                histEvent.put("requestId", requestId);
+
+                hiringUpdates.put("activityHistory", com.google.cloud.firestore.FieldValue.arrayUnion(histEvent));
+                batch.update(hiringRef, hiringUpdates);
+            }
+
             batch.commit().get();
             if (role.equals("FINANCE")) {
                 generateOffer(requestId);

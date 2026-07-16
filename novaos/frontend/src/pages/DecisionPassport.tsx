@@ -5,6 +5,7 @@ import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { AlertTriangle, CheckCircle2, FileText, Loader2, Mail, RefreshCw, ShieldCheck, UserCheck, XCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { approveHiring, getPassport, previewWhatIf, retryDocument, sendOffer } from '../services/passportService';
 import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 
@@ -17,6 +18,7 @@ const badge = (status: string) => status === 'PASS' || status === 'APPROVED' || 
 export const DecisionPassport: React.FC = () => {
   const { requestId = '' } = useParams();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [working, setWorking] = useState('');
@@ -59,9 +61,21 @@ export const DecisionPassport: React.FC = () => {
     : workflow.state === 'LEGAL_PENDING' ? 'LEGAL' : workflow.state === 'FINANCE_PENDING' ? 'FINANCE' : '';
   const canApprove = role === expected;
 
-  const act = async (name: string, operation: () => Promise<any>) => {
+  const act = async (name: string, operation: () => Promise<any>, successMsg?: string) => {
     setWorking(name); setError('');
-    try { setData(await operation()); } catch (err) { setError(message(err)); } finally { setWorking(''); }
+    try {
+      const res = await operation();
+      if (res !== undefined) setData(res);
+      if (successMsg) {
+        showToast(successMsg, 'success');
+      }
+    } catch (err) {
+      const errMsg = message(err);
+      setError(errMsg);
+      showToast(errMsg, 'error');
+    } finally {
+      setWorking('');
+    }
   };
 
   if (!data && !error) return <div className="h-72 bg-slate-900 rounded-2xl animate-pulse" />;
@@ -124,7 +138,7 @@ export const DecisionPassport: React.FC = () => {
         </div>) : <p className="text-xs text-slate-500">No approvals recorded.</p>}</div>
         {canApprove && <div className="mt-5 border-t border-slate-800 pt-5"><textarea value={comment} onChange={e => setComment(e.target.value)}
           placeholder="Approval comment" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs" />
-          <button onClick={() => act('approve', () => approveHiring(requestId, comment))} disabled={working !== ''}
+          <button onClick={() => act('approve', () => approveHiring(requestId, comment), 'Approval recorded and workflow advanced successfully')} disabled={working !== ''}
             className="mt-3 bg-violet-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold disabled:opacity-40">
             {working === 'approve' ? 'Recording approval…' : 'Approve as ' + role}</button></div>}
       </section>
@@ -136,11 +150,11 @@ export const DecisionPassport: React.FC = () => {
           <p className="text-xs text-slate-400 mt-1">{docItem.offerId} · delivery {docItem.deliveryStatus}</p>
         </div>)}</div>
         {role === 'HR_ADMIN' && workflow.state === 'FAILED' && workflow.failedStage === 'OFFER_GENERATING' &&
-          <button onClick={() => act('document', () => retryDocument(requestId))} className="mt-4 flex gap-2 bg-slate-800 px-4 py-2.5 rounded-xl text-xs">
+          <button onClick={() => act('document', () => retryDocument(requestId), 'Document preparation retried successfully')} className="mt-4 flex gap-2 bg-slate-800 px-4 py-2.5 rounded-xl text-xs">
             <RefreshCw className="h-4 w-4" /> Retry document preparation</button>}
         {role === 'HR_ADMIN' && workflow.emailStatus === 'FAILED' &&
           <button onClick={() => window.confirm('Retry sending this offer email?') &&
-            act('resend', () => sendOffer(requestId, true))} disabled={working !== ''}
+            act('resend', () => sendOffer(requestId, true), 'Offer email resent successfully')} disabled={working !== ''}
             className="mt-4 flex gap-2 border border-amber-500/30 text-amber-400 px-4 py-2.5 rounded-xl text-xs">
             <Mail className="h-4 w-4" /> Retry email</button>}
       </section>

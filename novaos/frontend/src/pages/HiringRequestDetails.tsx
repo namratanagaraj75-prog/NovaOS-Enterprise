@@ -21,7 +21,7 @@ import {
 } from "../services/hiringRequestService";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { doc, updateDoc, arrayUnion } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { normalizeDate, formatNormalizedDate } from "../lib/dateUtils";
 
@@ -55,22 +55,35 @@ export default function HiringRequestDetails() {
   useEffect(() => {
     if (isLoading || !user || !id) return;
 
-    let cancelled = false;
     setError("");
     setItem(null);
 
     getHiring(id)
       .then((request) => {
-        if (!cancelled) setItem(request);
+        setItem(request);
       })
       .catch((requestError) => {
-        if (!cancelled) setError(errorOf(requestError));
+        setError(errorOf(requestError));
       });
 
+    // Listen to real-time updates from Firestore to synchronize state instantly cross-device
+    const unsubscribe = onSnapshot(
+      doc(db, "hiringRequests", id),
+      (snap) => {
+        if (snap.exists()) {
+          setItem({ id: snap.id, ...snap.data() } as any);
+        }
+      },
+      (err) => {
+        console.error("Firestore listener failed", err);
+      }
+    );
+
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, [id, isLoading, user?.uid]);
+
   const run = async (fn: () => Promise<HiringRequest>, msg: string) => {
     setBusy(true);
     setError("");
@@ -78,7 +91,9 @@ export default function HiringRequestDetails() {
       setItem(await fn());
       showToast(msg, "success");
     } catch (e) {
-      setError(errorOf(e));
+      const errMsg = errorOf(e);
+      setError(errMsg);
+      showToast(errMsg, "error");
     } finally {
       setBusy(false);
     }

@@ -68,7 +68,8 @@ service cloud.firestore {
 
     match /notifications/{documentId} {
       allow read: if hiringRole();
-      allow write: if false;
+      allow update: if hiringRole() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if false;
     }
 
     match /aiRequests/{documentId} {
@@ -99,7 +100,14 @@ service cloud.firestore {
     match /hiringRequests/{documentId} {
       allow read: if activeUser() && (role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR']
         || ((role() == 'HIRING_MANAGER' || role() == 'MANAGER') && resource.data.hiringManagerId == request.auth.uid));
-      allow write: if false;
+      allow update: if activeUser() && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+        || (
+          role() == resource.data.currentApproverRole
+          && (role() != 'HIRING_MANAGER' || resource.data.hiringManagerId == request.auth.uid)
+        )
+      );
+      allow create, delete: if false;
     }
 
     match /accessRequests/{documentId} {
