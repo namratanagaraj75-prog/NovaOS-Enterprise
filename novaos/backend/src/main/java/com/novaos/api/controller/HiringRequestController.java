@@ -11,7 +11,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/hiring/requests")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "https://nova-os-enterprise-afit-7w894bhgi.vercel.app"}, allowCredentials = "true")
 public class HiringRequestController {
     private final HiringRequestService service;
     public HiringRequestController(HiringRequestService service){this.service=service;}
