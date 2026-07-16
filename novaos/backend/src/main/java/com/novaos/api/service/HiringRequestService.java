@@ -33,12 +33,15 @@ public class HiringRequestService {
     private final String fromAddress;
     private final String mailHost;
     private final int mailPort;
+    private final ResendEmailService resendEmailService;
 
     public HiringRequestService(HiringCommandParser parser, HiringWorkflowRules rules, HiringPolicyEngine policyEngine, OfferLetterPdfService pdf,
             JavaMailSender mail, @Value("${email.from.name:Nova HR}") String fromName,
             @Value("${email.from.address:${spring.mail.username:}}") String fromAddress,
-            @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort) {
+            @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
+            ResendEmailService resendEmailService) {
         this.parser=parser; this.rules=rules; this.policyEngine=policyEngine; this.pdf=pdf; this.mail=mail; this.fromName=fromName; this.fromAddress=fromAddress; this.mailHost=mailHost; this.mailPort=mailPort;
+        this.resendEmailService = resendEmailService;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -356,26 +359,38 @@ public class HiringRequestService {
         String filename = "Offer_Letter_" + sanitized + "_" + id + ".pdf";
         byte[] pdfBytes = null;
         try{
-            if(!StringUtils.hasText(fromAddress))throw new IllegalStateException("EMAIL_FROM_ADDRESS or MAIL_USERNAME is missing in backend/.env");
+            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+                String apiKey = System.getenv("RESEND_API_KEY");
+                if (!StringUtils.hasText(apiKey)) {
+                    throw new IllegalStateException("RESEND_API_KEY environment variable is missing.");
+                }
+            } else {
+                if(!StringUtils.hasText(fromAddress))throw new IllegalStateException("EMAIL_FROM_ADDRESS or MAIL_USERNAME is missing in backend/.env");
+            }
             if (!StringUtils.hasText(email) || !email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) throw bad("Invalid candidate email address.");
-            logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, fromAddress, email);
             
             Map<String,Object> values=new HashMap<>(d.getData());
             values.put("offerReferenceId","NOVA-"+id.substring(0,8).toUpperCase());
             values.put("approvalSummary",approvalSummary(d));
             pdfBytes = pdf.generate(values);
             
-            MimeMessage message=mail.createMimeMessage();
-            MimeMessageHelper helper=new MimeMessageHelper(message,true,"UTF-8");
-            helper.setFrom(fromAddress,fromName);
-            helper.setTo(email);
-            helper.setSubject("Your Official Offer Letter – NovaOS");
-            helper.setText(buildEmailBody(candidateName), false);
-            helper.addAttachment(filename, new ByteArrayResource(pdfBytes), "application/pdf");
-            
-            message.saveChanges();
-            String messageId=Objects.toString(message.getMessageID(),"");
-            mail.send(message);
+            String messageId = "";
+            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+                messageId = resendEmailService.sendEmail(email, "Your Official Offer Letter – NovaOS", buildEmailBody(candidateName), filename, pdfBytes);
+            } else {
+                logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, fromAddress, email);
+                MimeMessage message=mail.createMimeMessage();
+                MimeMessageHelper helper=new MimeMessageHelper(message,true,"UTF-8");
+                helper.setFrom(fromAddress,fromName);
+                helper.setTo(email);
+                helper.setSubject("Your Official Offer Letter – NovaOS");
+                helper.setText(buildEmailBody(candidateName), false);
+                helper.addAttachment(filename, new ByteArrayResource(pdfBytes), "application/pdf");
+                
+                message.saveChanges();
+                messageId=Objects.toString(message.getMessageID(),"");
+                mail.send(message);
+            }
             Timestamp sent=Timestamp.now();
             
             String successAction = isResend ? "EMAIL_RESEND_SUCCESS" : (isRetry ? "EMAIL_RETRY_SUCCESS" : "EMAIL_SENT");
@@ -402,7 +417,7 @@ public class HiringRequestService {
         }catch(Exception error){
             Timestamp failed=Timestamp.now();
             String errorMsg = safeMessage(error);
-            logger.error("SMTP delivery failed via host={}, port={}, sender={}, recipient={}; root cause: {}", mailHost, mailPort, fromAddress, email, rootCauseMessage(error), error);
+            logger.error("Email delivery failed via provider={}, recipient={}; root cause: {}", System.getenv("EMAIL_PROVIDER"), email, rootCauseMessage(error), error);
             
             String failureAction = isResend ? "EMAIL_RESEND_FAILED" : (isRetry ? "EMAIL_RETRY_FAILED" : "EMAIL_FAILED");
             String failureDetails = isResend ? "Manual email resend failed. "+errorMsg : (isRetry ? "Email retry failed; PDF generation metadata preserved. "+errorMsg : "Email failed; PDF generation metadata preserved for retry. "+errorMsg);
@@ -425,7 +440,7 @@ public class HiringRequestService {
             db.collection("documents").document(id+"-offer").set(docUpdates,SetOptions.merge()).get();
             
             writeAudit(db,id,failureAction,actor,errorMsg);
-            throw error;
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Email delivery failed: " + errorMsg);
         } finally { pdfBytes = null; }
     }
 

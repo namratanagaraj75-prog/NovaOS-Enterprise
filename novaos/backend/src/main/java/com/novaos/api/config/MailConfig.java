@@ -30,6 +30,10 @@ public class MailConfig {
     @EventListener(ApplicationReadyEvent.class)
     public void verifySmtpConnection() {
         try {
+            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+                logger.info("SMTP connection check skipped because EMAIL_PROVIDER is resend.");
+                return;
+            }
             if (!(mailSender instanceof JavaMailSenderImpl sender)) {
                 logger.warn("SMTP authentication check skipped because the configured mail sender does not expose a connection test.");
                 return;

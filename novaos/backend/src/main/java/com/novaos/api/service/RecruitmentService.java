@@ -24,15 +24,18 @@ public class RecruitmentService {
     private final EmployeeRepository employeeRepository;
     private final GeminiService geminiService;
     private final JavaMailSender mailSender;
+    private final ResendEmailService resendEmailService;
 
     public RecruitmentService(CandidateService candidateService,
                               EmployeeRepository employeeRepository,
                               GeminiService geminiService,
-                              JavaMailSender mailSender) {
+                              JavaMailSender mailSender,
+                              ResendEmailService resendEmailService) {
         this.candidateService = candidateService;
         this.employeeRepository = employeeRepository;
         this.geminiService = geminiService;
         this.mailSender = mailSender;
+        this.resendEmailService = resendEmailService;
     }
 
     /**
@@ -120,6 +123,20 @@ public class RecruitmentService {
     private void sendWelcomeEmail(String email, String name, String role) {
         try {
             String setupLink = FirebaseAuth.getInstance().generatePasswordResetLink(email);
+
+            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+                String body = String.format(
+                    "Hi %s,\n\n" +
+                    "Welcome aboard as %s! Your NovaOS employee account has been created.\n\n" +
+                    "Set your password here to activate it:\n%s\n\n" +
+                    "If you weren't expecting this, please contact HR.\n\n" +
+                    "Best,\nNovaOS Talent Acquisition Team",
+                    name, role, setupLink
+                );
+                resendEmailService.sendEmail(email, "Welcome to NovaOS - Set up your account", body, null, null);
+                logger.info("Sent onboarding welcome email via Resend to {}", email);
+                return;
+            }
 
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true);

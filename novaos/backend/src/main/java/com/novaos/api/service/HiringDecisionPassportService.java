@@ -55,13 +55,15 @@ public class HiringDecisionPassportService {
     private final String mailFromName;
     private final String mailHost;
     private final int mailPort;
+    private final ResendEmailService resendEmailService;
 
     public HiringDecisionPassportService(GeminiService gemini, JavaMailSender mailSender,
             @Value("${spring.mail.username:}") String mailUsername,
             @Value("${spring.mail.password:}") String mailPassword,
             @Value("${email.from.address:${spring.mail.username:}}") String mailFrom,
             @Value("${email.from.name:Nova HR}") String mailFromName,
-            @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort) {
+            @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
+            ResendEmailService resendEmailService) {
         this.gemini = gemini;
         this.mailSender = mailSender;
         this.mailUsername = mailUsername;
@@ -70,6 +72,7 @@ public class HiringDecisionPassportService {
         this.mailFromName = mailFromName;
         this.mailHost = mailHost;
         this.mailPort = mailPort;
+        this.resendEmailService = resendEmailService;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -294,28 +297,49 @@ public class HiringDecisionPassportService {
             byte[] pdfContent = offerPdf(requestId, details);
 
             workflowRef.set(Map.of("state", "EMAIL_PENDING", "emailStatus", "PENDING", "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
+            String filename = offerFileName(String.valueOf(details.get("name")), requestId);
+            String messageId = "";
             try {
-                sendEmail(details, pdfContent, requestId);
+                if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+                    String recipient = String.valueOf(details.get("email"));
+                    String subject = "Your Offer Letter – " + mailFromName;
+                    String body = "Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName;
+                    messageId = resendEmailService.sendEmail(recipient, subject, body, filename, pdfContent);
+                } else {
+                    logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, mailFrom, details.get("email"));
+                    MimeMessage message = mailSender.createMimeMessage();
+                    MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+                    helper.setFrom(mailFrom, mailFromName);
+                    helper.setTo(String.valueOf(details.get("email")));
+                    helper.setSubject("Your Offer Letter – " + mailFromName);
+                    helper.setText("Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
+                    helper.addAttachment(filename, new ByteArrayResource(pdfContent), "application/pdf");
+                    mailSender.send(message);
+                    messageId = Objects.toString(message.getMessageID(), "");
+                }
             } catch (Exception mailError) {
-                String filename = offerFileName(String.valueOf(details.get("name")), requestId);
-                logger.error("SMTP delivery failed via host={}, port={}, sender={}, recipient={}; root cause: {}", mailHost, mailPort, mailFrom, details.get("email"), rootCauseMessage(mailError), mailError);
-                workflowRef.set(Map.of("state", "EMAIL_PENDING", "emailStatus", "FAILED",
-                        "emailError", mailError.getMessage(), "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
+                String provider = System.getenv("EMAIL_PROVIDER");
+                logger.error("Email delivery failed via provider={}, recipient={}; root cause: {}", provider, details.get("email"), rootCauseMessage(mailError), mailError);
+                String safeError = safeMessage(mailError);
+                
+                workflowRef.set(Map.of("state", "OFFER_GENERATED", "emailStatus", "FAILED",
+                        "emailError", safeError, "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
                 db.collection("documents").document(requestId + "-offer")
-                        .set(documentMetadata(requestId, details, filename, "FAILED", null, actor, safeMessage(mailError)), SetOptions.merge()).get();
+                        .set(documentMetadata(requestId, details, filename, "FAILED", null, actor, safeError), SetOptions.merge()).get();
                 db.collection("auditLogs").document(requestId + "-EMAIL_FAILED-" + System.currentTimeMillis())
-                        .set(audit(requestId, "EMAIL_FAILED", actor, mailError.getMessage())).get();
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "SMTP delivery failed. " + mailError.getMessage());
+                        .set(audit(requestId, "EMAIL_FAILED", actor, safeError)).get();
+                
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Email delivery failed: " + safeError);
             }
 
             Instant sentAt = Instant.now();
             workflowRef.set(Map.of("state", "EMAIL_SENT", "lastCompletedState", "EMAIL_SENT", "emailStatus", "SENT",
-                    "emailSentAt", sentAt.toString(), "updatedAt", sentAt.toString()), SetOptions.merge()).get();
-            String filename = offerFileName(String.valueOf(details.get("name")), requestId);
+                    "emailSentAt", sentAt.toString(), "updatedAt", sentAt.toString(), "emailMessageId", messageId), SetOptions.merge()).get();
             db.collection("documents").document(requestId + "-offer")
                     .set(documentMetadata(requestId, details, filename, "SENT", sentAt.toString(), actor, null)).get();
             db.collection("auditLogs").document(requestId + "-EMAIL_SENT-" + (resend ? sentAt.toEpochMilli() : "INITIAL"))
-                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, "SMTP accepted the offer PDF attachment.")).get();
+                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, 
+                            "resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER")) ? "Resend accepted the offer PDF attachment." : "SMTP accepted the offer PDF attachment.")).get();
             createEmployee(db, requestId, details, actor);
             return passport(requestId);
         } catch (ResponseStatusException e) {
@@ -595,6 +619,14 @@ public class HiringDecisionPassportService {
     }
 
     private void requireMailCredentials() {
+        if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
+            String apiKey = System.getenv("RESEND_API_KEY");
+            if (!StringUtils.hasText(apiKey)) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "RESEND_API_KEY is missing. Set RESEND_API_KEY in environment variables.");
+            }
+            return;
+        }
         if (!StringUtils.hasText(mailUsername))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "MAIL_USERNAME is missing. Create a Gmail account/app sender and set MAIL_USERNAME in backend/.env.");
