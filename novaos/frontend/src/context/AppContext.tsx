@@ -3,8 +3,10 @@ import { collection, onSnapshot, doc, updateDoc, writeBatch } from 'firebase/fir
 import { useAuth } from './AuthContext';
 import { db } from '../lib/firebase';
 import apiClient from '../services/api';
+import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 import { Candidate } from '../services/recruitmentService';
 import { WorkflowState, WorkflowStep } from '../services/workflowService';
+import { HiringRequest } from '../services/hiringRequestService';
 
 export type LoadingKey = 'app' | 'dashboard' | 'commandCenter' | 'pipeline' | 'workflow' | 'intelligence';
 export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error' }
@@ -15,7 +17,7 @@ export interface AppState {
   candidates: Candidate[];
   employees: Candidate[];
   workflows: Record<string, WorkflowState>;
-  hiringRequests: any[];
+  hiringRequests: HiringRequest[];
   selectedCandidateId: string | null;
   activities: AppActivity[];
   notifications: AppNotification[];
@@ -32,7 +34,7 @@ type Action =
   | { type: 'CANDIDATES'; payload: Candidate[] }
   | { type: 'EMPLOYEES'; payload: Candidate[] }
   | { type: 'WORKFLOWS'; payload: Record<string, WorkflowState> }
-  | { type: 'HIRING_REQUESTS'; payload: any[] }
+  | { type: 'HIRING_REQUESTS'; payload: HiringRequest[] }
   | { type: 'ACTIVITIES'; payload: AppActivity[] }
   | { type: 'NOTIFICATIONS'; payload: AppNotification[] }
   | { type: 'NOTIFY'; payload: AppNotification }
@@ -114,15 +116,61 @@ const workflowFrom = (data: any): WorkflowState => {
   };
 };
 
-const deriveKpis = (state: AppState, candidates = state.candidates, employees = state.employees,
-  workflows = state.workflows): KPIs => {
-  const values = Object.values(workflows);
+const deriveKpis = (state: AppState): KPIs => {
+  const hiringRequests = state.hiringRequests || [];
+  const candidates = state.candidates || [];
+  const employees = state.employees || [];
+  
+  // 1. Total Candidates (unique email addresses from candidates and hiringRequests)
+  const candidateEmails = new Set<string>();
+  candidates.forEach(c => {
+    if (c.email) candidateEmails.add(c.email.toLowerCase().trim());
+  });
+  hiringRequests.forEach(d => {
+    if (d.candidateEmail) candidateEmails.add(d.candidateEmail.toLowerCase().trim());
+  });
+  const totalCandidatesCount = candidateEmails.size || candidates.length;
+
+  // 2. Pending Approvals (for HrAdmin/SuperAdmin, count all pending)
+  const pendingApprovalsCount = hiringRequests.filter(d => 
+    ['PENDING_MANAGER_APPROVAL', 'PENDING_FINANCE_APPROVAL', 'PENDING_LEGAL_APPROVAL', 'PENDING_CEO_APPROVAL'].includes(d.status)
+  ).length;
+
+  // 3. Offers Sent (Offers Generated)
+  const offersSentCount = hiringRequests.filter(d => 
+    d.pdfUrl || 
+    d.pdfGeneratedAt || 
+    d.offerLetterStatus === 'GENERATED' || 
+    ['OFFER_GENERATED', 'EMAIL_SENDING', 'EMAIL_SENT', 'WORKFLOW_COMPLETED'].includes(d.status)
+  ).length;
+
+  // 4. Employees Created
+  const employeeEmails = new Set<string>();
+  employees.forEach(e => {
+    if (e.email) employeeEmails.add(e.email.toLowerCase().trim());
+  });
+  hiringRequests.forEach(d => {
+    if (['WORKFLOW_COMPLETED', 'APPROVED', 'EMPLOYEE_CREATED'].includes(d.status) && d.candidateEmail) {
+      employeeEmails.add(d.candidateEmail.toLowerCase().trim());
+    }
+  });
+  const employeesCreatedCount = employeeEmails.size || employees.length;
+
+  // 5. Executions Today
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTodayMs = startOfToday.getTime();
+  const executionsTodayCount = hiringRequests.filter(d => {
+    const created = normalizeDate(d.createdAt);
+    return created && created.getTime() >= startOfTodayMs;
+  }).length;
+
   return {
-    totalCandidates: candidates.length,
-    pendingApprovals: values.filter(w => w.status === 'Running' && w.currentStep && ['manager', 'legal', 'finance'].includes(w.currentStep)).length,
-    offersSent: candidates.filter(c => c.status === 'Offer Sent' || c.status === 'Employee Created').length,
-    employeesCreated: employees.length,
-    executionsToday: values.filter(w => w.status === 'Completed').length,
+    totalCandidates: totalCandidatesCount,
+    pendingApprovals: pendingApprovalsCount,
+    offersSent: offersSentCount,
+    employeesCreated: employeesCreatedCount,
+    executionsToday: executionsTodayCount,
   };
 };
 
@@ -141,7 +189,10 @@ function reducer(state: AppState, action: Action): AppState {
       const next = { ...state, workflows: action.payload, executionsToday: Object.values(action.payload).filter(w => w.status === 'Completed').length };
       return { ...next, kpis: deriveKpis(next) };
     }
-    case 'HIRING_REQUESTS': return { ...state, hiringRequests: action.payload };
+    case 'HIRING_REQUESTS': {
+      const next = { ...state, hiringRequests: action.payload };
+      return { ...next, kpis: deriveKpis(next) };
+    }
     case 'ACTIVITIES': return { ...state, activities: action.payload };
     case 'NOTIFICATIONS': return { ...state, notifications: action.payload };
     case 'NOTIFY': return { ...state, notifications: [action.payload, ...state.notifications].slice(0, 50) };
@@ -153,7 +204,7 @@ function reducer(state: AppState, action: Action): AppState {
 }
 
 interface Value extends AppState {
-  hiringRequests: any[];
+  hiringRequests: HiringRequest[];
   selectedCandidate: Candidate | null;
   setCurrentUser: (user: AppState['currentUser']) => void;
   addCandidate: (candidate: Candidate) => void;
@@ -214,17 +265,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       onSnapshot(collection(db, 'auditLogs'), snap => dispatch({ type: 'ACTIVITIES', payload: snap.docs
         .map(item => {
           const data = item.data();
-          const timestamp = String(data.timestamp || '');
+          const d = normalizeDate(data.timestamp);
+          const timestamp = d ? d.toISOString() : '';
           return { id: item.id, message: String(data.action || ''), sub: String(data.details || ''),
-            timestamp, time: timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            timestamp, time: d ? formatNormalizedDate(d) : 'Time unavailable',
             type: String(data.action || '').includes('FAILED') ? 'error' : 'success' } as AppActivity;
         }).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50) }), fail),
       onSnapshot(collection(db, 'notifications'), snap => dispatch({ type: 'NOTIFICATIONS', payload: snap.docs
         .filter(item => !item.data().targetRole || item.data().targetRole === user.role)
         .map(item => {
           const data = item.data();
+          const d = normalizeDate(data.timestamp);
+          const createdAt = d ? d.toISOString() : '';
           return { id: item.id, message: String(data.title || ''), sub: String(data.message || ''),
-            createdAt: String(data.timestamp || ''), type: 'info', read: Boolean(data.read), requestId: data.requestId } as AppNotification;
+            createdAt, type: 'info', read: Boolean(data.read), requestId: data.requestId } as AppNotification;
         }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }), fail),
     ];
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());

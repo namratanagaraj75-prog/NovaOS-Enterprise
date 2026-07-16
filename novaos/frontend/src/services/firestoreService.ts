@@ -1,4 +1,5 @@
 import { db } from "../lib/firebase";
+import { TimestampInput } from "../lib/dateUtils";
 import {
   collection,
   doc,
@@ -91,7 +92,7 @@ export interface FirestoreWorkflowRequest {
   requestedBy: string;
   status: "Pending" | "Approved" | "Rejected";
   stage: string;
-  timestamp: string;
+  timestamp: TimestampInput;
 }
 
 export const getWorkflowRequests = async (): Promise<
@@ -150,7 +151,7 @@ export interface AuditLog {
   id?: string;
   action: string;
   actor: string;
-  timestamp: string;
+  timestamp: TimestampInput;
   details?: string;
 }
 

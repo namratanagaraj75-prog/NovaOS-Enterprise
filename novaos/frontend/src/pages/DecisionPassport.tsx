@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, FileText, Loader2, Mail, RefreshCw, Shield
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { approveHiring, getPassport, previewWhatIf, retryDocument, sendOffer } from '../services/passportService';
+import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 
 const message = (error: any) => error?.response?.data?.detail || error?.response?.data?.message || error?.message || 'Request failed';
 const badge = (status: string) => status === 'PASS' || status === 'APPROVED' || status === 'SENT'
@@ -48,8 +49,11 @@ export const DecisionPassport: React.FC = () => {
   const checks: any[] = workflow.policyChecks || [];
   const approvals: any[] = data?.approvals || [];
   const documents: any[] = data?.documents || [];
-  const audit: any[] = useMemo(() => [...(data?.auditEvents || [])].sort((a, b) =>
-    String(a.timestamp).localeCompare(String(b.timestamp))), [data?.auditEvents]);
+  const audit: any[] = useMemo(() => [...(data?.auditEvents || [])].sort((a, b) => {
+    const tA = normalizeDate(a.timestamp);
+    const tB = normalizeDate(b.timestamp);
+    return (tA ? tA.getTime() : 0) - (tB ? tB.getTime() : 0);
+  }), [data?.auditEvents]);
   const role = (user?.role || '').toUpperCase();
   const expected = workflow.state === 'MANAGER_PENDING' ? 'HIRING_MANAGER'
     : workflow.state === 'LEGAL_PENDING' ? 'LEGAL' : workflow.state === 'FINANCE_PENDING' ? 'FINANCE' : '';
@@ -115,7 +119,7 @@ export const DecisionPassport: React.FC = () => {
         <div className="space-y-3 mt-5">{approvals.length ? approvals.map(item => <div key={item.approverRole}
           className="bg-slate-950 border border-slate-800 rounded-xl p-4">
           <div className="flex justify-between"><strong className="text-sm">{item.approverRole}</strong><span className="text-[10px] text-emerald-400">{item.status}</span></div>
-          <p className="text-xs text-slate-400 mt-1">{item.approverEmail} · {new Date(item.timestamp).toLocaleString()}</p>
+          <p className="text-xs text-slate-400 mt-1">{item.approverEmail} · {formatNormalizedDate(item.timestamp)}</p>
           {item.comment && <p className="text-xs mt-2">“{item.comment}”</p>}
         </div>) : <p className="text-xs text-slate-500">No approvals recorded.</p>}</div>
         {canApprove && <div className="mt-5 border-t border-slate-800 pt-5"><textarea value={comment} onChange={e => setComment(e.target.value)}
@@ -164,7 +168,7 @@ export const DecisionPassport: React.FC = () => {
       <div className="mt-5 border-l border-slate-700 pl-5 space-y-5">{audit.map((event, index) =>
         <div key={event.action + index} className="relative"><span className="absolute -left-[25px] top-1 h-2 w-2 bg-cyan-400 rounded-full" />
           <div className="flex justify-between gap-3"><strong className="text-xs">{event.action}</strong>
-            <span className="text-[10px] text-slate-500">{new Date(event.timestamp).toLocaleString()}</span></div>
+            <span className="text-[10px] text-slate-500">{formatNormalizedDate(event.timestamp)}</span></div>
           <p className="text-xs text-slate-400 mt-1">{event.details}</p>
           <p className="text-[10px] text-cyan-400 mt-1">{event.actor?.email || event.actor}</p>
         </div>)}</div>

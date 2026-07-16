@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { FileCheck, ShieldCheck, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { normalizeDate } from '../lib/dateUtils';
 
 const formatApprovalTime = (v: any) => {
-  if (!v) return '—';
-  const d = v.toDate ? v.toDate() : new Date(v.seconds ? v.seconds * 1000 : v);
+  const d = normalizeDate(v);
+  if (!d) return '—';
   if (Number.isNaN(d.getTime())) return '—';
   const day = d.getDate();
   const monthNames = [

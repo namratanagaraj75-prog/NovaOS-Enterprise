@@ -1,4 +1,5 @@
 import apiClient from './api';
+import { TimestampInput } from '../lib/dateUtils';
 
 export type HiringStatus = 'DRAFT' | 'PENDING_MANAGER_APPROVAL' | 'PENDING_FINANCE_APPROVAL' |
   'PENDING_LEGAL_APPROVAL' | 'PENDING_CEO_APPROVAL' | 'MANAGER_APPROVED' | 'FINANCE_APPROVED' |
@@ -12,20 +13,24 @@ export interface HiringCandidateInput {
   reportingManagerName: string; hiringManagerName: string; location: string; employmentType: string;
 }
 export interface HiringParseResult { intent: string; candidate: HiringCandidateInput; missingFields: string[]; followUpQuestion?: string; confidence: number; }
-export interface ActivityEntry { action: string; performedBy: string; performedByName: string; timestamp: any; details: string; }
+export interface ActivityEntry { action: string; performedBy: string; performedByName: string; timestamp: TimestampInput; details: string; }
 export interface HiringRequest extends HiringCandidateInput {
-  id: string; status: HiringStatus; createdBy: string; createdByName: string; createdAt: any; updatedAt: any;
+  id: string; status: HiringStatus; createdBy: string; createdByName: string; createdAt: TimestampInput; updatedAt: TimestampInput;
   hiringManagerId: string; currentApproverRole?: 'HIRING_MANAGER' | 'FINANCE' | 'LEGAL' | 'CEO';
-  managerApprovalStatus?: string; managerApprovedBy?: string; managerApprovedByName?: string; managerApprovedAt?: any;
-  financeApprovalStatus?: string; financeApprovedBy?: string; financeApprovedByName?: string; financeApprovedAt?: any;
-  legalApprovalStatus?: string; legalApprovedBy?: string; legalApprovedByName?: string; legalApprovedAt?: any;
-  ceoApprovalStatus?: string; ceoApprovedBy?: string; ceoApprovedByName?: string; ceoApprovedAt?: any;
+  managerApprovalStatus?: string; managerApprovedBy?: string; managerApprovedByName?: string; managerApprovedAt?: TimestampInput;
+  managerApprovalComment?: string; managerApprovedByEmail?: string;
+  financeApprovalStatus?: string; financeApprovedBy?: string; financeApprovedByName?: string; financeApprovedAt?: TimestampInput;
+  financeApprovalComment?: string; financeApprovedByEmail?: string;
+  legalApprovalStatus?: string; legalApprovedBy?: string; legalApprovedByName?: string; legalApprovedAt?: TimestampInput;
+  legalApprovalComment?: string; legalApprovedByEmail?: string;
+  ceoApprovalStatus?: string; ceoApprovedBy?: string; ceoApprovedByName?: string; ceoApprovedAt?: TimestampInput;
+  emailErrorMessage?: string;
   decision?: 'PASS'|'WARNING'|'CONDITIONAL'|'BLOCKED'; riskLevel?: 'LOW'|'MEDIUM'|'HIGH'; riskScore?: number;
   decisionPassport?: any; policyChecks?: any[]; approvalRoute?: string[]; currentApprovalIndex?: number;
-  fieldChangeHistory?: any[]; offerLetterStatus?: string; offerLetterUrl?: string; offerLetterGeneratedAt?: any;
+  fieldChangeHistory?: any[]; offerLetterStatus?: string; offerLetterUrl?: string; offerLetterGeneratedAt?: TimestampInput;
   emailRecipient?: string; emailRetryCount?: number; emailFailureReason?: string;
-  approvedByName?: string; approvedAt?: any; rejectionReason?: string;
-  pdfUrl?: string; pdfFileName?: string; pdfGeneratedAt?: any; emailStatus: string; emailSentAt?: any;
+  approvedByName?: string; approvedAt?: TimestampInput; rejectionReason?: string;
+  pdfUrl?: string; pdfFileName?: string; pdfGeneratedAt?: TimestampInput; emailStatus: string; emailSentAt?: TimestampInput;
   emailMessageId?: string; emailError?: string; activityHistory: ActivityEntry[];
 }
 

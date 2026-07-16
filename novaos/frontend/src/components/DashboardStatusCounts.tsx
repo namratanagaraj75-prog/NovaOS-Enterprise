@@ -4,10 +4,11 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Clock, CheckCircle, XCircle, UserCheck, AlertTriangle } from 'lucide-react';
 import StatCard from './StatCard';
+import { normalizeDate } from '../lib/dateUtils';
 
 const isToday = (ts: any) => {
-  if (!ts) return false;
-  const d = ts.toDate ? ts.toDate() : new Date(ts.seconds ? ts.seconds * 1000 : ts);
+  const d = normalizeDate(ts);
+  if (!d) return false;
   const today = new Date();
   return (
     d.getDate() === today.getDate() &&

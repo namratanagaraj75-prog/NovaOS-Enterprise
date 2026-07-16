@@ -1,48 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, AlertTriangle, FileText, Mail, ShieldAlert, UserCheck, Users, Workflow } from 'lucide-react';
+import { Activity, AlertTriangle, FileText, Mail, UserCheck, Users, Workflow } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import StatCard from '../components/StatCard';
 import ActivityFeed from '../components/ActivityFeed';
 import ApprovalInbox from '../components/ApprovalInbox';
-
-interface Metrics {
-  candidates: number; pending: number; offers: number; emails: number;
-  employees: number; failed: number; warnings: number; today: number; blocked: number;
-  averageApprovalHours: number;
-}
-const initial: Metrics = { candidates: 0, pending: 0, offers: 0, emails: 0, employees: 0, failed: 0, warnings: 0, today:0, blocked:0, averageApprovalHours:0 };
-const millis=(value:any)=>value?.toMillis?value.toMillis():value?.seconds?value.seconds*1000:new Date(value||0).getTime();
+import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
+import { useDashboardStats } from '../hooks/useDashboardStats';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const [metrics, setMetrics] = useState(initial);
+  const metrics = useDashboardStats();
   const [audit, setAudit] = useState<any[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const fail = (err: Error) => setError(err.message);
     const unsubs = [
-      onSnapshot(collection(db, 'candidates'), snap => setMetrics(m => ({ ...m, candidates: snap.size })), fail),
-      onSnapshot(collection(db, 'employees'), snap => setMetrics(m => ({ ...m, employees: snap.size })), fail),
-      onSnapshot(collection(db, 'documents'), snap => setMetrics(m => ({
-        ...m,
-        offers: snap.docs.filter(d => d.data().type === 'OFFER_LETTER' && d.data().status === 'STORED').length,
-        emails: snap.docs.filter(d => d.data().deliveryStatus === 'SENT').length,
-      })), fail),
-      onSnapshot(collection(db, 'hiringRequests'), snap => {const docs=snap.docs.map(d=>d.data());const start=new Date();start.setHours(0,0,0,0);const approvalHours=docs.map(d=>{const events=d.activityHistory||[];const first=events.find((e:any)=>e.action==='REQUEST_CREATED');const last=[...events].reverse().find((e:any)=>e.action==='APPROVALS_COMPLETED');return first&&last?(millis(last.timestamp)-millis(first.timestamp))/3600000:null;}).filter((v:any)=>v!=null&&v>=0) as number[];setMetrics(m => ({
-        ...m,
-        today:docs.filter(d=>millis(d.createdAt)>=start.getTime()).length,
-        pending: docs.filter(d => ['PENDING_MANAGER_APPROVAL', 'PENDING_FINANCE_APPROVAL', 'PENDING_LEGAL_APPROVAL', 'PENDING_CEO_APPROVAL'].includes(d.status)).length,
-        failed: docs.filter(d => d.emailStatus === 'FAILED' || d.offerLetterStatus === 'FAILED').length,
-        blocked:docs.filter(d=>d.decision==='BLOCKED').length,
-        warnings: docs.reduce((total, d) => total + (d.policyChecks || []).filter((c: any) => c.status === 'WARNING').length, 0),
-        averageApprovalHours:approvalHours.length?Number((approvalHours.reduce((a,b)=>a+b,0)/approvalHours.length).toFixed(1)):0,
-      }))}, fail),
       onSnapshot(collection(db, 'auditLogs'), snap => setAudit(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a: any, b: any) => String(b.timestamp).localeCompare(String(a.timestamp))).slice(0, 20)), fail),
+        .sort((a: any, b: any) => {
+          const tA = normalizeDate(a.timestamp);
+          const tB = normalizeDate(b.timestamp);
+          return (tB ? tB.getTime() : 0) - (tA ? tA.getTime() : 0);
+        }).slice(0, 20)), fail),
     ];
     return () => unsubs.forEach(unsubscribe => unsubscribe());
   }, []);
@@ -50,7 +32,7 @@ export const Dashboard: React.FC = () => {
   const feed = useMemo(() => audit.map(item => ({
     id: item.id, candidateName: item.action || 'Audit event',
     position: item.actor?.email || item.actor || 'NovaOS',
-    action: item.details || '', timestamp: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+    action: item.details || '', timestamp: formatNormalizedDate(item.timestamp),
     status: item.action?.includes('FAILED') ? 'warning' as const : 'completed' as const,
   })), [audit]);
 

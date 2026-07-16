@@ -23,10 +23,11 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { normalizeDate, formatNormalizedDate } from "../lib/dateUtils";
+
 const when = (v: any) => {
-  if (!v) return "—";
-  const d = v?.toDate ? v.toDate() : new Date(v?.seconds ? v.seconds * 1000 : v);
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = normalizeDate(v);
+  if (!d) return "—";
   const day = d.getDate();
   const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   let h = d.getHours(); const m = String(d.getMinutes()).padStart(2,"0"); const ampm = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;

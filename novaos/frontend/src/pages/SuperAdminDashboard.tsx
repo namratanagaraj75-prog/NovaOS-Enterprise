@@ -3,6 +3,8 @@ import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/
 import { db } from '../lib/firebase';
 import firestoreService, { AuditLog, FirestoreUser } from '../services/firestoreService';
 import apiClient from '../services/api';
+import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
+import { useDashboardStats } from '../hooks/useDashboardStats';
 import {
   Activity,
   Bot,
@@ -85,17 +87,15 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useEffect(() => {
     const unsubscribers = [
-      onSnapshot(collection(db, 'employees'), snap => setMetrics(prev => ({ ...prev, employees: snap.size }))),
-      onSnapshot(collection(db, 'candidates'), snap => setMetrics(prev => ({ ...prev, candidates: snap.size }))),
-      onSnapshot(query(collection(db, 'workflowRequests')), snap => {
-        const pending = snap.docs.filter(item => String(item.data().status || '').toLowerCase() === 'pending').length;
-        setMetrics(prev => ({ ...prev, pendingApprovals: pending }));
-      }),
       onSnapshot(collection(db, 'auditLogs'), snap => {
         setMetrics(prev => ({ ...prev, auditLogs: snap.size }));
         const logs = snap.docs
           .map(item => ({ id: item.id, ...item.data() } as AuditLog))
-          .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+          .sort((a, b) => {
+            const tA = normalizeDate(a.timestamp);
+            const tB = normalizeDate(b.timestamp);
+            return (tB ? tB.getTime() : 0) - (tA ? tA.getTime() : 0);
+          })
           .slice(0, 12);
         setAuditLogs(logs);
       }),
@@ -106,9 +106,7 @@ export const SuperAdminDashboard: React.FC = () => {
         const data = snap.data() || {};
         setMetrics(prev => ({
           ...prev,
-          aiRequests: Number(data.aiRequests || 0),
-          documentsGenerated: Number(data.documentsGenerated || 0),
-          emailsSent: Number(data.emailsSent || 0)
+          aiRequests: Number(data.aiRequests || 0)
         }));
       })
     ];
@@ -116,15 +114,17 @@ export const SuperAdminDashboard: React.FC = () => {
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, []);
 
+  const stats = useDashboardStats();
+
   const metricCards = useMemo(() => [
-    { label: 'Employees', value: metrics.employees, icon: Users, tone: 'text-cyan-400' },
-    { label: 'Candidates', value: metrics.candidates, icon: UserPlus, tone: 'text-violet-400' },
+    { label: 'Employees', value: stats.employees, icon: Users, tone: 'text-cyan-400' },
+    { label: 'Candidates', value: stats.candidates, icon: UserPlus, tone: 'text-violet-400' },
     { label: 'AI Requests', value: metrics.aiRequests, icon: Bot, tone: 'text-fuchsia-400' },
-    { label: 'Pending Approvals', value: metrics.pendingApprovals, icon: Workflow, tone: 'text-amber-400' },
-    { label: 'Documents Generated', value: metrics.documentsGenerated, icon: FileText, tone: 'text-emerald-400' },
-    { label: 'Emails Sent', value: metrics.emailsSent, icon: Mail, tone: 'text-sky-400' },
+    { label: 'Pending Approvals', value: stats.pending, icon: Workflow, tone: 'text-amber-400' },
+    { label: 'Documents Generated', value: stats.offers, icon: FileText, tone: 'text-emerald-400' },
+    { label: 'Emails Sent', value: stats.emails, icon: Mail, tone: 'text-sky-400' },
     { label: 'Audit Logs', value: metrics.auditLogs, icon: ScrollText, tone: 'text-slate-300' }
-  ], [metrics]);
+  ], [stats, metrics]);
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,7 +254,7 @@ export const SuperAdminDashboard: React.FC = () => {
                 <div key={log.id} className="bg-[#080613]/60 border border-white/5 rounded-xl p-3 text-xs">
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-bold text-white">{log.action}</span>
-                    <span className="text-[10px] text-gray-500 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    <span className="text-[10px] text-gray-500 shrink-0">{formatNormalizedDate(log.timestamp)}</span>
                   </div>
                   <p className="text-gray-400 text-[11px] mt-1">{log.details}</p>
                   <span className="text-[10px] text-cyan-400 uppercase font-bold mt-2 block">{log.actor}</span>

@@ -147,6 +147,8 @@ public class ApiController {
         long pendingApprovals = countPendingApprovals();
         long offersSent = countCandidatesWithOfferSignals();
         long auditLogs = countCollection("auditLogs");
+        long emailsSent = countEmailsSent();
+        long documentsGenerated = countDocumentsGenerated();
 
         DocumentSnapshot metrics = readDashboardMetrics();
         DashboardStats stats = DashboardStats.builder()
@@ -155,8 +157,8 @@ public class ApiController {
                 .pendingApprovals(pendingApprovals)
                 .employeesCreated(employeesCreated)
                 .aiRequests(metric(metrics, "aiRequests"))
-                .documentsGenerated(metric(metrics, "documentsGenerated"))
-                .emailsSent(metric(metrics, "emailsSent"))
+                .documentsGenerated(documentsGenerated)
+                .emailsSent(emailsSent)
                 .auditLogs(auditLogs)
                 .build();
 
@@ -242,6 +244,46 @@ public class ApiController {
             return offerSent + employeeCreated;
         } catch (Exception e) {
             logger.warn("Could not count offer signals: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    private long countEmailsSent() {
+        try {
+            com.google.cloud.firestore.Firestore db = FirestoreClient.getFirestore();
+            java.util.Set<String> uniqueIds = new java.util.HashSet<>();
+            for (com.google.cloud.firestore.QueryDocumentSnapshot d : db.collection("hiringRequests").get().get().getDocuments()) {
+                Map<String, Object> data = d.getData();
+                if ("SENT".equals(data.get("emailStatus")) || 
+                    "EMAIL_SENT".equals(data.get("status")) || 
+                    Boolean.TRUE.equals(data.get("emailSent")) || 
+                    data.get("emailSentAt") != null || 
+                    "SENT".equals(data.get("emailDeliveryStatus"))) {
+                    uniqueIds.add(d.getId());
+                }
+            }
+            for (com.google.cloud.firestore.QueryDocumentSnapshot d : db.collection("workflowRequests").get().get().getDocuments()) {
+                Map<String, Object> data = d.getData();
+                if ("SENT".equals(data.get("emailStatus")) || 
+                    "EMAIL_SENT".equals(data.get("state")) || 
+                    Boolean.TRUE.equals(data.get("emailSent")) || 
+                    data.get("emailSentAt") != null || 
+                    "SENT".equals(data.get("emailDeliveryStatus"))) {
+                    uniqueIds.add(d.getId());
+                }
+            }
+            return uniqueIds.size();
+        } catch (Exception e) {
+            logger.warn("Could not count successfully sent emails: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    private long countDocumentsGenerated() {
+        try {
+            return FirestoreClient.getFirestore().collection("documents").get().get().size();
+        } catch (Exception e) {
+            logger.warn("Could not count documents generated: {}", e.getMessage());
             return 0;
         }
     }
