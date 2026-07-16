@@ -260,7 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dispatch({ type: 'WORKFLOWS', payload: workflows });
       }, fail),
       onSnapshot(collection(db, 'hiringRequests'), snap => {
-        dispatch({ type: 'HIRING_REQUESTS', payload: snap.docs.map(item => ({ id: item.id, ...item.data() })) });
+        dispatch({ type: 'HIRING_REQUESTS', payload: snap.docs.map(item => ({ id: item.id, ...item.data() })) as HiringRequest[] });
       }, fail),
       onSnapshot(collection(db, 'auditLogs'), snap => dispatch({ type: 'ACTIVITIES', payload: snap.docs
         .map(item => {

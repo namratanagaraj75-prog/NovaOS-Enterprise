@@ -32,6 +32,7 @@ export interface HiringRequest extends HiringCandidateInput {
   approvedByName?: string; approvedAt?: TimestampInput; rejectionReason?: string;
   pdfUrl?: string; pdfFileName?: string; pdfGeneratedAt?: TimestampInput; emailStatus: string; emailSentAt?: TimestampInput;
   emailMessageId?: string; emailError?: string; activityHistory: ActivityEntry[];
+  readBy?: string[];
 }
 
 export const emptyCandidate = (): HiringCandidateInput => ({ candidateName:'',candidateEmail:'',jobTitle:'',department:'',

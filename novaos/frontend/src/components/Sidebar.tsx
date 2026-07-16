@@ -37,22 +37,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
 
     if (itemName === "Hiring Requests" || itemName === "HR Portal") {
       if (role !== "HR_ADMIN" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => !r.readBy || !r.readBy.includes(uid)).length;
+      return hiringRequests.filter(r => !(r.readBy ?? []).includes(uid)).length;
     }
 
     if (itemName === "Manager View") {
       if (role !== "HIRING_MANAGER" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "HIRING_MANAGER" && (!r.readBy || !r.readBy.includes(uid))).length;
+      return hiringRequests.filter(r => r.currentApproverRole === "HIRING_MANAGER" && !(r.readBy ?? []).includes(uid)).length;
     }
 
     if (itemName === "Legal") {
       if (role !== "LEGAL" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "LEGAL" && (!r.readBy || !r.readBy.includes(uid))).length;
+      return hiringRequests.filter(r => r.currentApproverRole === "LEGAL" && !(r.readBy ?? []).includes(uid)).length;
     }
 
     if (itemName === "Finance") {
       if (role !== "FINANCE" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "FINANCE" && (!r.readBy || !r.readBy.includes(uid))).length;
+      return hiringRequests.filter(r => r.currentApproverRole === "FINANCE" && !(r.readBy ?? []).includes(uid)).length;
     }
 
     return 0;

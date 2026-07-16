@@ -78,9 +78,7 @@ export function useDashboardStats(): DashboardMetrics {
     const emailsCount = hiringRequests.filter(d => 
       d.emailStatus === 'SENT' || 
       d.status === 'EMAIL_SENT' || 
-      d.emailSent === true || 
-      d.emailSentAt || 
-      d.emailDeliveryStatus === 'SENT'
+      d.emailSentAt
     ).length;
 
     // 6. Employees Created
