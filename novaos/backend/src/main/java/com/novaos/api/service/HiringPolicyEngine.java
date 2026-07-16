@@ -45,10 +45,18 @@ public class HiringPolicyEngine {
         else if(!joiningPolicy.exists())missingPolicy(checks,"Joining Date","joiningDate","No joining-date policy is configured; valid date accepted with warning.",Map.of("joiningDate",candidate.joiningDate()));
         else check(checks,"Joining Date","joiningDate",!Boolean.TRUE.equals(joiningPolicy.getBoolean("futureDateRequired"))||future,"Joining date complies with policy.","Joining date violates the configured future-date policy.",Map.of("joiningDate",candidate.joiningDate()));
 
-        boolean duplicate=duplicate(db,"hiringRequests","candidateEmail",candidate.candidateEmail(),currentRequestId)
-                || duplicate(db,"employees","email",candidate.candidateEmail(),currentRequestId)
+        boolean duplicateEmployee = duplicate(db,"employees","email",candidate.candidateEmail(),currentRequestId)
                 || duplicate(db,"employees","candidateEmail",candidate.candidateEmail(),currentRequestId);
-        check(checks,"Duplicate Hiring","duplicateHiring",!duplicate,"No duplicate hiring identity was found.","A hiring request or employee already uses this email.",Map.of("email",Objects.toString(candidate.candidateEmail(),"")));
+        if (duplicateEmployee) {
+            check(checks,"Duplicate Hiring","duplicateHiring",false,"","An employee already uses this email.",Map.of("email",Objects.toString(candidate.candidateEmail(),"")));
+        } else {
+            boolean duplicateRequest = duplicate(db,"hiringRequests","candidateEmail",candidate.candidateEmail(),currentRequestId);
+            if (duplicateRequest) {
+                warning(checks,"Duplicate Hiring","duplicateHiring",true,"A previous hiring request exists for this email. A new request will still be created.",Map.of("email",Objects.toString(candidate.candidateEmail(),"")));
+            } else {
+                check(checks,"Duplicate Hiring","duplicateHiring",true,"No duplicate hiring identity was found.","",Map.of("email",Objects.toString(candidate.candidateEmail(),"")));
+            }
+        }
 
         DocumentSnapshot salary=db.collection("policies").document("salaryBands").get().get();
         Map<String,Object> bands=map(salary.get("bands")); Map<String,Object> band=findIgnoreCase(bands,candidate.jobTitle());

@@ -120,7 +120,9 @@ export const DecisionPassport: React.FC = () => {
       <h2 className="font-bold text-white flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-cyan-400" /> Hiring policy report</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">{checks.map(check =>
         <div key={check.name} className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex gap-3">
-          {check.status === 'PASS' ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" /> : <XCircle className="h-5 w-5 text-rose-400 shrink-0" />}
+          {check.status === 'PASS' ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" /> :
+           check.status === 'WARNING' ? <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" /> :
+           <XCircle className="h-5 w-5 text-rose-400 shrink-0" />}
           <div><div className="flex gap-2 items-center"><h3 className="text-sm font-bold">{check.name}</h3>
             <span className={`text-[9px] border rounded px-1.5 ${badge(check.status)}`}>{check.status}</span></div>
             <p className="text-xs text-slate-400 mt-1">{check.reason}</p></div>

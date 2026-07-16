@@ -484,10 +484,21 @@ public class HiringDecisionPassportService {
                         : "Probation matches the configured default.",
                 evidence("months", c.probationMonths(), "allowedMonths", allowedProbation, "defaultMonths", defaultProbation)));
 
-        boolean duplicate = duplicate(db, "candidates", c.email(), currentRequestId) || duplicate(db, "employees", c.email(), currentRequestId);
-        checks.add(check("Duplicate identity", duplicate ? "FAIL" : "PASS",
-                duplicate ? "A candidate or employee with this email already exists." : "No duplicate candidate or employee was found.",
-                evidence("email", c.email())));
+        boolean duplicateEmployee = duplicate(db, "employees", c.email(), currentRequestId);
+        boolean duplicateCandidate = duplicate(db, "candidates", c.email(), currentRequestId);
+        if (duplicateEmployee) {
+            checks.add(check("Duplicate identity", "FAIL",
+                    "An employee with this email already exists.",
+                    evidence("email", c.email())));
+        } else if (duplicateCandidate) {
+            checks.add(check("Duplicate identity", "WARNING",
+                    "A previous hiring request exists for this email. A new request will still be created.",
+                    evidence("email", c.email())));
+        } else {
+            checks.add(check("Duplicate identity", "PASS",
+                    "No duplicate candidate or employee was found.",
+                    evidence("email", c.email())));
+        }
 
         List<String> chain = strings(hiring.get("approvalChain"));
         checks.add(check("Approval chain", chain.equals(List.of("HIRING_MANAGER", "LEGAL", "FINANCE")) ? "PASS" : "FAIL",
