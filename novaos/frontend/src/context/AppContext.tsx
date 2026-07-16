@@ -286,9 +286,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     let previous: boolean | null = null;
+    let hasLoggedHealth = false;
     const ping = async () => {
       let online = false;
-      try { await apiClient.get('/health', { timeout: 4000 }); online = true; } catch { online = false; }
+      try {
+        const rawApiUrl = (import.meta.env.VITE_API_URL || "/api").replace(/^VITE_API_URL=/, "");
+        const API_BASE = rawApiUrl.replace(/\/$/, "");
+        const HEALTH_URL = `${API_BASE}/health`;
+
+        if (!hasLoggedHealth) {
+          console.log("API_BASE", API_BASE);
+          console.log("HEALTH_URL", HEALTH_URL);
+          hasLoggedHealth = true;
+        }
+
+        const res = await fetch(HEALTH_URL);
+        online = res.ok;
+      } catch {
+        online = false;
+      }
       dispatch({ type: 'ONLINE', payload: online });
       if (previous !== online) {
         notify(online ? 'Backend Connected' : 'Backend Offline', online ? 'success' : 'warning',

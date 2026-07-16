@@ -1,8 +1,10 @@
 import axios from "axios";
 import { auth } from "../lib/firebase";
 
+const rawApiUrl = (import.meta.env.VITE_API_URL || "/api").replace(/^VITE_API_URL=/, "");
+
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "/api",
+  baseURL: rawApiUrl,
   headers: {
     "Content-Type": "application/json",
   },
