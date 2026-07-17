@@ -29,6 +29,7 @@ export interface HiringRequest extends HiringCandidateInput {
   decisionPassport?: any; policyChecks?: any[]; approvalRoute?: string[]; currentApprovalIndex?: number;
   fieldChangeHistory?: any[]; offerLetterStatus?: string; offerLetterUrl?: string; offerLetterGeneratedAt?: TimestampInput;
   emailRecipient?: string; emailRetryCount?: number; emailFailureReason?: string;
+  emailAttemptCount?: number; lastEmailAttemptAt?: TimestampInput; emailErrorCode?: string;
   approvedByName?: string; approvedAt?: TimestampInput; rejectionReason?: string;
   pdfUrl?: string; pdfFileName?: string; pdfGeneratedAt?: TimestampInput; emailStatus: string; emailSentAt?: TimestampInput;
   emailMessageId?: string; emailError?: string; activityHistory: ActivityEntry[];

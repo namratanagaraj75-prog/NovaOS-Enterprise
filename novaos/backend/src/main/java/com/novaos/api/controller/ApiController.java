@@ -10,6 +10,7 @@ import com.novaos.api.service.CandidateService;
 import com.novaos.api.service.RecruitmentService;
 import com.novaos.api.service.WorkflowService;
 import com.novaos.api.service.HiringPolicyEngine;
+import com.novaos.api.service.SmtpConnectivityService;
 import com.novaos.api.ai.GeminiService;
 import com.novaos.api.repository.EmployeeRepository;
 import org.springframework.security.core.Authentication;
@@ -38,6 +39,7 @@ public class ApiController {
     private final WorkflowService workflowService;
     private final EmployeeRepository employeeRepository;
     private final HiringPolicyEngine hiringPolicyEngine;
+    private final SmtpConnectivityService smtpConnectivityService;
 
     @Value("${spring.mail.host:}")
     private String mailHost;
@@ -51,18 +53,32 @@ public class ApiController {
     @Value("${spring.mail.password:}")
     private String mailPassword;
 
+    @Value("${nova.mail.from:${spring.mail.username:}}")
+    private String mailFrom;
+
+    @Value("${spring.mail.properties.mail.smtp.auth:false}")
+    private boolean smtpAuthEnabled;
+
+    @Value("${spring.mail.properties.mail.smtp.starttls.enable:false}")
+    private boolean startTlsEnabled;
+
+    @Value("${spring.mail.properties.mail.smtp.connectiontimeout:0}")
+    private int connectionTimeoutMs;
+
     public ApiController(GeminiService geminiService,
                           RecruitmentService recruitmentService,
                           CandidateService candidateService,
                           WorkflowService workflowService,
                           EmployeeRepository employeeRepository,
-                          HiringPolicyEngine hiringPolicyEngine) {
+                          HiringPolicyEngine hiringPolicyEngine,
+                          SmtpConnectivityService smtpConnectivityService) {
         this.geminiService = geminiService;
         this.recruitmentService = recruitmentService;
         this.candidateService = candidateService;
         this.workflowService = workflowService;
         this.employeeRepository = employeeRepository;
         this.hiringPolicyEngine = hiringPolicyEngine;
+        this.smtpConnectivityService = smtpConnectivityService;
     }
 
     /**
@@ -371,8 +387,17 @@ public class ApiController {
             "port", mailPort,
             "usernameConfigured", StringUtils.hasText(mailUsername),
             "passwordConfigured", StringUtils.hasText(mailPassword),
-            "tlsEnabled", true
+            "fromConfigured", StringUtils.hasText(mailFrom),
+            "authEnabled", smtpAuthEnabled,
+            "startTlsEnabled", startTlsEnabled,
+            "connectionTimeoutMs", connectionTimeoutMs
         ));
+    }
+
+    @GetMapping("/admin/email-connectivity-diagnostic")
+    public ResponseEntity<?> getEmailConnectivityDiagnostic(Authentication auth) {
+        requireAnyRole(auth, "HR_ADMIN", "SUPER_ADMIN");
+        return ResponseEntity.ok(smtpConnectivityService.diagnose());
     }
 
     private void requireAnyRole(Authentication auth, String... roles) {

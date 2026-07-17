@@ -124,7 +124,9 @@ public class OfferLetterPdfService {
             infoCardsTable.setSpacingAfter(15);
 
             String dateString = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMMM yyyy"));
-            String refId = Objects.toString(request.get("offerReferenceId"), "NOVA-" + String.valueOf(request.get("id")).substring(0,8).toUpperCase());
+            String requestId = Objects.toString(request.get("id"), "UNKNOWN");
+            String fallbackRef = "NOVA-" + requestId.substring(0, Math.min(8, requestId.length())).toUpperCase();
+            String refId = Objects.toString(request.get("offerReferenceId"), fallbackRef);
             String candidateInfo = String.valueOf(request.get("candidateName")) + "\n" + String.valueOf(request.get("candidateEmail"));
 
             infoCardsTable.addCell(createInfoCard("DATE OF ISSUE", dateString));

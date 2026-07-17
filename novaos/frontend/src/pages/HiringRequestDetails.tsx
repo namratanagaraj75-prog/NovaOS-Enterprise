@@ -29,8 +29,13 @@ const when = (v: any) => {
   const formatted = formatNormalizedDate(v);
   return formatted === 'Time unavailable' ? '—' : formatted;
 };
-const errorOf = (e: any) =>
-  e.response?.data?.detail || e.response?.data?.message || e.message;
+const errorOf = (e: any) => {
+  const response = e.response?.data;
+  if (response?.status === "EMAIL_FAILED") {
+    return `Email delivery failed. Error code: ${response.errorCode || "EMAIL_DELIVERY_FAILED"}. Please retry or contact the administrator.`;
+  }
+  return response?.message || "The request could not be completed.";
+};
 export default function HiringRequestDetails() {
   const { id = "" } = useParams();
   const nav = useNavigate();
@@ -297,10 +302,16 @@ export default function HiringRequestDetails() {
             <p className="text-[10px] uppercase text-slate-500 tracking-wider">Delivery Timestamp</p>
             <p className="text-slate-300 mt-1">{item.emailSentAt ? when(item.emailSentAt) : "—"}</p>
           </div>
-          {item.emailRetryCount !== undefined && item.emailRetryCount > 0 && (
+          {item.lastEmailAttemptAt && (
             <div>
-              <p className="text-[10px] uppercase text-slate-500 tracking-wider">Retry/Resend Attempts</p>
-              <p className="text-slate-300 mt-1">{item.emailRetryCount}</p>
+              <p className="text-[10px] uppercase text-slate-500 tracking-wider">Latest Delivery Attempt</p>
+              <p className="text-slate-300 mt-1">{when(item.lastEmailAttemptAt)}</p>
+            </div>
+          )}
+          {item.emailAttemptCount !== undefined && item.emailAttemptCount > 0 && (
+            <div>
+              <p className="text-[10px] uppercase text-slate-500 tracking-wider">Delivery Attempts</p>
+              <p className="text-slate-300 mt-1">{item.emailAttemptCount}</p>
             </div>
           )}
           {item.emailMessageId && (
@@ -309,12 +320,11 @@ export default function HiringRequestDetails() {
               <p className="text-xs font-mono text-slate-400 mt-1 truncate">{item.emailMessageId}</p>
             </div>
           )}
-          {(item.emailFailureReason || item.emailError || item.emailErrorMessage) && (
+          {item.emailStatus === "FAILED" && (
             <div className="md:col-span-2 bg-slate-950/60 p-4 rounded-xl border border-rose-500/20 mt-2">
-              <p className="text-[10px] uppercase text-rose-400 font-bold tracking-wider mb-1">Error Message</p>
-              <p className="text-xs font-mono text-rose-300 whitespace-pre-wrap">
-                {item.emailErrorMessage || item.emailFailureReason || item.emailError}
-              </p>
+              <p className="text-[10px] uppercase text-rose-400 font-bold tracking-wider mb-1">Email Delivery Failed</p>
+              <p className="text-xs text-rose-300">Error code: {item.emailErrorCode || "EMAIL_DELIVERY_FAILED"}</p>
+              <p className="text-xs text-rose-200 mt-1">Please retry or contact the administrator.</p>
             </div>
           )}
         </div>
@@ -520,7 +530,7 @@ export default function HiringRequestDetails() {
             </button>
           </>
         )}
-        {hr && (item.emailStatus === "FAILED" || item.emailStatus === "SENT") && (
+        {hr && item.emailStatus === "FAILED" && !item.emailSentAt && (
           <button
             disabled={busy}
             onClick={() => {
@@ -560,7 +570,11 @@ export default function HiringRequestDetails() {
                   {a.actorRole && <span className="text-slate-500 ml-1">· {a.actorRole.replace(/_/g, " ")}</span>}
                   {a.actorEmail && <span className="text-slate-600 ml-1">({a.actorEmail})</span>}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">{a.message || a.details}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {String(a.eventType || a.action || "").includes("EMAIL") && String(a.eventType || a.action || "").includes("FAIL")
+                    ? `Email delivery failed. Error code: ${item.emailErrorCode || "EMAIL_DELIVERY_FAILED"}.`
+                    : a.message || a.details}
+                </p>
                 {a.requestId && (
                   <p className="text-[9px] text-slate-600 font-mono mt-0.5">REQ: {a.requestId}</p>
                 )}

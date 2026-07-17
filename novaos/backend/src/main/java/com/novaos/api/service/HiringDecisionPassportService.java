@@ -55,7 +55,7 @@ public class HiringDecisionPassportService {
     private final String mailFromName;
     private final String mailHost;
     private final int mailPort;
-    private final ResendEmailService resendEmailService;
+    private final SmtpErrorMapper smtpErrorMapper;
 
     public HiringDecisionPassportService(GeminiService gemini, JavaMailSender mailSender,
             @Value("${spring.mail.username:}") String mailUsername,
@@ -63,16 +63,19 @@ public class HiringDecisionPassportService {
             @Value("${nova.mail.from:${spring.mail.username:}}") String mailFrom,
             @Value("${nova.mail.from-name:Nova OS}") String mailFromName,
             @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
-            ResendEmailService resendEmailService) {
+            SmtpErrorMapper smtpErrorMapper) {
         this.gemini = gemini;
         this.mailSender = mailSender;
-        this.mailUsername = mailUsername;
-        this.mailPassword = mailPassword;
-        this.mailFrom = mailFrom;
-        this.mailFromName = mailFromName;
-        this.mailHost = mailHost;
+        this.mailUsername = trim(mailUsername);
+        this.mailPassword = trim(mailPassword);
+        this.mailFrom = this.mailUsername;
+        this.mailFromName = trim(mailFromName);
+        this.mailHost = trim(mailHost);
         this.mailPort = mailPort;
-        this.resendEmailService = resendEmailService;
+        this.smtpErrorMapper = smtpErrorMapper;
+        if (StringUtils.hasText(mailFrom) && !trim(mailFrom).equalsIgnoreCase(this.mailUsername)) {
+            logger.warn("MAIL_FROM differs from MAIL_USERNAME; Gmail delivery will use MAIL_USERNAME as the sender identity.");
+        }
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -306,12 +309,30 @@ public class HiringDecisionPassportService {
             }
 
             byte[] pdfContent = offerPdf(requestId, details);
+            Instant attemptAt = Instant.now();
+            workflow = db.runTransaction(transaction -> {
+                DocumentSnapshot current = transaction.get(workflowRef).get();
+                String txStatus = Objects.toString(current.get("emailStatus"), "");
+                String txState = Objects.toString(current.get("state"), "");
+                if ("EMAIL_SENT".equals(txState) || "SENT".equals(txStatus) || current.get("emailSentAt") != null)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Offer already sent; duplicate delivery is blocked.");
+                if ("EMAIL_PENDING".equals(txState) || "SENDING".equals(txStatus))
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "An email delivery attempt is already in progress.");
+                if (resend && !("EMAIL_FAILED".equals(txState) && "FAILED".equals(txStatus)))
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Manual retry is available only when the status is EMAIL_FAILED.");
+                long attempts = Optional.ofNullable(current.getLong("emailAttemptCount")).orElse(0L);
+                transaction.update(workflowRef, Map.of(
+                        "state", "EMAIL_PENDING", "emailStatus", "SENDING",
+                        "emailAttemptCount", attempts + 1,
+                        "lastEmailAttemptAt", attemptAt.toString(),
+                        "updatedAt", attemptAt.toString()));
+                return current;
+            }).get();
 
-            workflowRef.set(Map.of("state", "EMAIL_PENDING", "emailStatus", "PENDING", "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
             String filename = offerFileName(String.valueOf(details.get("name")), requestId);
             String messageId = "";
             try {
-                logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, mailFrom, email);
+                logger.info("Sending offer email via SMTP host={}, port={}, recipient={}", mailHost, mailPort, email);
                 MimeMessage message = mailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
                 helper.setFrom(mailFrom, mailFromName);
@@ -323,8 +344,8 @@ public class HiringDecisionPassportService {
                 messageId = Objects.toString(message.getMessageID(), "");
             } catch (Exception mailError) {
                 logger.error("Email delivery failed via recipient={}; root cause: {}", email, rootCauseMessage(mailError), mailError);
-                String safeError = safeMessage(mailError);
-                String errorCode = getErrorCode(mailError);
+                String errorCode = smtpErrorMapper.code(mailError);
+                String safeError = "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
                 
                 workflowRef.set(Map.of(
                     "state", "EMAIL_FAILED",
@@ -334,6 +355,7 @@ public class HiringDecisionPassportService {
                     "emailProvider", "GMAIL_SMTP",
                     "emailRecipient", email,
                     "emailSubject", "Offer of Employment | Nova OS",
+                    "lastEmailAttemptAt", Instant.now().toString(),
                     "updatedAt", Instant.now().toString()
                 ), SetOptions.merge()).get();
                 db.collection("documents").document(requestId + "-offer")
@@ -365,45 +387,9 @@ public class HiringDecisionPassportService {
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
-            if (e instanceof com.novaos.api.exception.EmailDeliveryException) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, e.getMessage(), e);
-            }
+            if (e instanceof com.novaos.api.exception.EmailDeliveryException deliveryError) throw deliveryError;
             throw server("Offer delivery could not be completed", e);
         }
-    }
-
-    private String getErrorCode(Throwable error) {
-        String msg = error.getMessage();
-        if (msg == null) return "SMTP_DELIVERY_FAILED";
-        
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        String rootMsg = cause.getMessage() != null ? cause.getMessage() : "";
-        String fullMsg = (msg + " " + rootMsg).toLowerCase(Locale.ROOT);
-        
-        if (fullMsg.contains("username and password not accepted") 
-                || fullMsg.contains("authenticationfailedexception") 
-                || fullMsg.contains("535-5.7.8") || fullMsg.contains("535 5.7.8")) {
-            return "SMTP_AUTH_FAILED";
-        }
-        if (fullMsg.contains("connection timeout") || fullMsg.contains("connection timed out") || fullMsg.contains("timed out")) {
-            return "SMTP_CONNECTION_TIMEOUT";
-        }
-        if (fullMsg.contains("tls") || fullMsg.contains("ssl") || fullMsg.contains("handshake") || fullMsg.contains("starttls")) {
-            return "TLS_FAILURE";
-        }
-        if (fullMsg.contains("invalid recipient") || fullMsg.contains("invalid addresses") || fullMsg.contains("recipient address rejected") || fullMsg.contains("invalid email")) {
-            return "INVALID_RECIPIENT";
-        }
-        if (fullMsg.contains("rate limit") || fullMsg.contains("too many") || fullMsg.contains("421")) {
-            return "RATE_LIMIT_EXCEEDED";
-        }
-        if (fullMsg.contains("mail_username") || fullMsg.contains("mail_password") || fullMsg.contains("missing")) {
-            return "MISSING_CONFIG";
-        }
-        return "SMTP_DELIVERY_FAILED";
     }
 
     public Map<String, Object> whatIf(String requestId, WhatIfRequest change, Authentication auth) {
@@ -633,7 +619,7 @@ public class HiringDecisionPassportService {
 
     private void sendEmail(Map<String, Object> c, byte[] pdf, String requestId) throws Exception {
         String recipient = String.valueOf(c.get("email"));
-        logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, mailFrom, recipient);
+        logger.info("Sending offer email via SMTP host={}, port={}, recipient={}", mailHost, mailPort, recipient);
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
         helper.setFrom(mailFrom, mailFromName);
@@ -665,6 +651,10 @@ public class HiringDecisionPassportService {
         String sanitized = candidateName.replaceAll("[^A-Za-z0-9]", "_").replaceAll("_+", "_")
                 .replaceAll("^_+|_+$", "");
         return "Offer_Letter_" + (sanitized.isBlank() ? "Candidate" : sanitized) + "_" + requestId + ".pdf";
+    }
+
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String safeMessage(Throwable error) {

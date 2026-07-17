@@ -1,14 +1,15 @@
 package com.novaos.api.config;
 
-import org.springframework.boot.context.event.ApplicationReadyEvent;
+import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.event.EventListener;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Properties;
 
 @Configuration
 public class MailConfig {
@@ -27,45 +28,52 @@ public class MailConfig {
     @Value("${spring.mail.password:}")
     private String password;
     
-    @Value("${spring.mail.properties.mail.smtp.timeout:0}")
-    private int smtpTimeout;
-    
+    @Value("${spring.mail.properties.mail.smtp.auth:false}") private boolean authEnabled;
+    @Value("${spring.mail.properties.mail.smtp.starttls.enable:false}") private boolean startTlsEnabled;
+    @Value("${spring.mail.properties.mail.smtp.connectiontimeout:0}") private int connectionTimeout;
+    @Value("${spring.mail.properties.mail.smtp.timeout:0}") private int readTimeout;
+    @Value("${spring.mail.properties.mail.smtp.writetimeout:0}") private int writeTimeout;
     private final String senderAddress;
 
     public MailConfig(JavaMailSender mailSender,
             @Value("${nova.mail.from:${spring.mail.username:}}") String senderAddress) {
-        // Spring Boot auto-configure JavaMailSender from spring.mail.* properties.
         this.mailSender = mailSender;
         this.senderAddress = senderAddress;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void verifySmtpConnection() {
+    @PostConstruct
+    public void configureAndReportSmtp() {
+        // Keep Spring Boot's single auto-configured sender, while removing accidental
+        // whitespace introduced by environment-variable entry in Railway.
+        if (mailSender instanceof JavaMailSenderImpl sender) {
+            sender.setHost(trim(host));
+            sender.setPort(port);
+            sender.setUsername(trim(username));
+            sender.setPassword(trim(password));
+            Properties properties = sender.getJavaMailProperties();
+            properties.setProperty("mail.smtp.auth", Boolean.toString(authEnabled));
+            properties.setProperty("mail.smtp.starttls.enable", Boolean.toString(startTlsEnabled));
+            properties.setProperty("mail.smtp.starttls.required", "true");
+            properties.setProperty("mail.smtp.connectiontimeout", Integer.toString(connectionTimeout));
+            properties.setProperty("mail.smtp.timeout", Integer.toString(readTimeout));
+            properties.setProperty("mail.smtp.writetimeout", Integer.toString(writeTimeout));
+        }
+
+        logger.info("SMTP provider: GMAIL_SMTP");
         logger.info("SMTP host configured: {}", StringUtils.hasText(host));
+        logger.info("SMTP host: {}", trim(host));
         logger.info("SMTP port: {}", port);
         logger.info("SMTP username configured: {}", StringUtils.hasText(username));
         logger.info("SMTP password configured: {}", StringUtils.hasText(password));
-        logger.info("SMTP timeout: {}", smtpTimeout);
-        try {
-            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
-                logger.info("SMTP connection check skipped because EMAIL_PROVIDER is resend.");
-                return;
-            }
-            if (!(mailSender instanceof JavaMailSenderImpl sender)) {
-                logger.warn("SMTP authentication check skipped because the configured mail sender does not expose a connection test.");
-                return;
-            }
-            sender.testConnection();
-            logger.info("SMTP authentication verified for host={}, port={}, sender={}", host, port, senderAddress);
-        } catch (Exception error) {
-            logger.error("SMTP authentication check failed for host={}, port={}, sender={}; root cause: {}",
-                    host, port, senderAddress, rootCauseMessage(error), error);
-        }
+        logger.info("SMTP from configured: {}", StringUtils.hasText(senderAddress));
+        logger.info("SMTP STARTTLS enabled: {}", startTlsEnabled);
+        logger.info("SMTP auth enabled: {}", authEnabled);
+        logger.info("SMTP connection timeout: {}", connectionTimeout);
+        logger.info("SMTP read timeout: {}", readTimeout);
+        logger.info("SMTP write timeout: {}", writeTimeout);
     }
 
-    private String rootCauseMessage(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
-        return cause.getClass().getName() + ": " + String.valueOf(cause.getMessage());
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
     }
 }
