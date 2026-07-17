@@ -687,20 +687,12 @@ public class HiringDecisionPassportService {
     }
 
     private void requireMailCredentials() {
-        if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
-            String apiKey = System.getenv("RESEND_API_KEY");
-            if (!StringUtils.hasText(apiKey)) {
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "RESEND_API_KEY is missing. Set RESEND_API_KEY in environment variables.");
-            }
-            return;
-        }
         if (!StringUtils.hasText(mailUsername))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "MAIL_USERNAME is missing. Create a Gmail account/app sender and set MAIL_USERNAME in backend/.env.");
+                    "MAIL_USERNAME is missing. Set MAIL_USERNAME in environment variables or backend/.env.");
         if (!StringUtils.hasText(mailPassword))
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "MAIL_PASSWORD is missing. Create a Google Account App Password at https://myaccount.google.com/apppasswords and set MAIL_PASSWORD in backend/.env.");
+                    "MAIL_PASSWORD is missing. Create a Google Account App Password at https://myaccount.google.com/apppasswords and set MAIL_PASSWORD in environment variables or backend/.env.");
     }
 
     private Firestore db() {

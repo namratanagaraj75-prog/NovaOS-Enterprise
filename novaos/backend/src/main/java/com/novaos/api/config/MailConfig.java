@@ -19,7 +19,7 @@ public class MailConfig {
 
     public MailConfig(JavaMailSender mailSender,
             @Value("${spring.mail.host}") String host, @Value("${spring.mail.port}") int port,
-            @Value("${email.from.address:${spring.mail.username:}}") String senderAddress) {
+            @Value("${nova.mail.from:${spring.mail.username:}}") String senderAddress) {
         // Spring Boot auto-configures JavaMailSender from spring.mail.* properties.
         this.mailSender = mailSender;
         this.host = host;
