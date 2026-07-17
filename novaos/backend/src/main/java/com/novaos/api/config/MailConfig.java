@@ -6,6 +6,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,22 +14,38 @@ import org.slf4j.LoggerFactory;
 public class MailConfig {
     private static final Logger logger = LoggerFactory.getLogger(MailConfig.class);
     private final JavaMailSender mailSender;
-    private final String host;
-    private final int port;
+    
+    @Value("${spring.mail.host:}")
+    private String host;
+    
+    @Value("${spring.mail.port:0}")
+    private int port;
+    
+    @Value("${spring.mail.username:}")
+    private String username;
+    
+    @Value("${spring.mail.password:}")
+    private String password;
+    
+    @Value("${spring.mail.properties.mail.smtp.timeout:0}")
+    private int smtpTimeout;
+    
     private final String senderAddress;
 
     public MailConfig(JavaMailSender mailSender,
-            @Value("${spring.mail.host}") String host, @Value("${spring.mail.port}") int port,
             @Value("${nova.mail.from:${spring.mail.username:}}") String senderAddress) {
-        // Spring Boot auto-configures JavaMailSender from spring.mail.* properties.
+        // Spring Boot auto-configure JavaMailSender from spring.mail.* properties.
         this.mailSender = mailSender;
-        this.host = host;
-        this.port = port;
         this.senderAddress = senderAddress;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void verifySmtpConnection() {
+        logger.info("SMTP host configured: {}", StringUtils.hasText(host));
+        logger.info("SMTP port: {}", port);
+        logger.info("SMTP username configured: {}", StringUtils.hasText(username));
+        logger.info("SMTP password configured: {}", StringUtils.hasText(password));
+        logger.info("SMTP timeout: {}", smtpTimeout);
         try {
             if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
                 logger.info("SMTP connection check skipped because EMAIL_PROVIDER is resend.");
