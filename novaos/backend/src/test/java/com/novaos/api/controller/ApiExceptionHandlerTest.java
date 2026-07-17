@@ -9,14 +9,14 @@ class ApiExceptionHandlerTest {
     @Test
     void returnsOnlySafeEmailFailureFields() {
         var response = new ApiExceptionHandler().emailDeliveryFailed(
-                new EmailDeliveryException("internal smtp detail", "SMTP_CONNECTION_TIMEOUT",
+                new EmailDeliveryException("internal provider detail", "EMAIL_PROVIDER_CONNECTION_FAILED",
                         new RuntimeException("secret technical exception")));
 
         assertThat(response.getStatusCode().value()).isEqualTo(502);
         assertThat(response.getBody()).containsEntry("success", false)
                 .containsEntry("status", "EMAIL_FAILED")
                 .containsEntry("message", "The offer letter was generated, but email delivery failed.")
-                .containsEntry("errorCode", "SMTP_CONNECTION_TIMEOUT");
-        assertThat(response.getBody().toString()).doesNotContain("secret technical exception", "internal smtp detail");
+                .containsEntry("errorCode", "EMAIL_PROVIDER_CONNECTION_FAILED");
+        assertThat(response.getBody().toString()).doesNotContain("secret technical exception", "internal provider detail");
     }
 }

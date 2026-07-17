@@ -10,16 +10,12 @@ import com.novaos.api.service.CandidateService;
 import com.novaos.api.service.RecruitmentService;
 import com.novaos.api.service.WorkflowService;
 import com.novaos.api.service.HiringPolicyEngine;
-import com.novaos.api.service.SmtpConnectivityService;
 import com.novaos.api.ai.GeminiService;
 import com.novaos.api.repository.EmployeeRepository;
 import org.springframework.security.core.Authentication;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.util.StringUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -39,46 +35,19 @@ public class ApiController {
     private final WorkflowService workflowService;
     private final EmployeeRepository employeeRepository;
     private final HiringPolicyEngine hiringPolicyEngine;
-    private final SmtpConnectivityService smtpConnectivityService;
-
-    @Value("${spring.mail.host:}")
-    private String mailHost;
-
-    @Value("${spring.mail.port:0}")
-    private int mailPort;
-
-    @Value("${spring.mail.username:}")
-    private String mailUsername;
-
-    @Value("${spring.mail.password:}")
-    private String mailPassword;
-
-    @Value("${nova.mail.from:${spring.mail.username:}}")
-    private String mailFrom;
-
-    @Value("${spring.mail.properties.mail.smtp.auth:false}")
-    private boolean smtpAuthEnabled;
-
-    @Value("${spring.mail.properties.mail.smtp.starttls.enable:false}")
-    private boolean startTlsEnabled;
-
-    @Value("${spring.mail.properties.mail.smtp.connectiontimeout:0}")
-    private int connectionTimeoutMs;
 
     public ApiController(GeminiService geminiService,
                           RecruitmentService recruitmentService,
                           CandidateService candidateService,
                           WorkflowService workflowService,
                           EmployeeRepository employeeRepository,
-                          HiringPolicyEngine hiringPolicyEngine,
-                          SmtpConnectivityService smtpConnectivityService) {
+                          HiringPolicyEngine hiringPolicyEngine) {
         this.geminiService = geminiService;
         this.recruitmentService = recruitmentService;
         this.candidateService = candidateService;
         this.workflowService = workflowService;
         this.employeeRepository = employeeRepository;
         this.hiringPolicyEngine = hiringPolicyEngine;
-        this.smtpConnectivityService = smtpConnectivityService;
     }
 
     /**
@@ -378,36 +347,4 @@ public class ApiController {
         return value != null ? value : 0;
     }
 
-    @GetMapping("/admin/email-diagnostic")
-    public ResponseEntity<?> getEmailDiagnostic(Authentication auth) {
-        requireAnyRole(auth, "HR_ADMIN", "SUPER_ADMIN");
-        return ResponseEntity.ok(Map.of(
-            "provider", "GMAIL_SMTP",
-            "hostConfigured", StringUtils.hasText(mailHost),
-            "port", mailPort,
-            "usernameConfigured", StringUtils.hasText(mailUsername),
-            "passwordConfigured", StringUtils.hasText(mailPassword),
-            "fromConfigured", StringUtils.hasText(mailFrom),
-            "authEnabled", smtpAuthEnabled,
-            "startTlsEnabled", startTlsEnabled,
-            "connectionTimeoutMs", connectionTimeoutMs
-        ));
-    }
-
-    @GetMapping("/admin/email-connectivity-diagnostic")
-    public ResponseEntity<?> getEmailConnectivityDiagnostic(Authentication auth) {
-        requireAnyRole(auth, "HR_ADMIN", "SUPER_ADMIN");
-        return ResponseEntity.ok(smtpConnectivityService.diagnose());
-    }
-
-    private void requireAnyRole(Authentication auth, String... roles) {
-        if (auth == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required.");
-        }
-        boolean hasAny = java.util.Arrays.stream(roles)
-                .anyMatch(r -> auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_" + r)));
-        if (!hasAny) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied. Required one of: " + java.util.Arrays.toString(roles));
-        }
-    }
 }

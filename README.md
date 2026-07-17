@@ -118,7 +118,7 @@ No manual document creation is required.
 After the PDF is generated:
 
 - Offer Letter is attached automatically
-- Secure SMTP delivery
+- Secure Resend API delivery
 - Candidate receives email instantly
 - Delivery status is stored
 - Timestamp recorded
@@ -205,7 +205,7 @@ NovaOS follows secure enterprise practices.
          +-----------------+----------------+
          |                                  |
          |                                  |
- Offer Letter Generator              SMTP Email Service
+ Offer Letter Generator              Resend Email Service
          |                                  |
          +-----------------+----------------+
                            |
@@ -255,7 +255,7 @@ NovaOS follows secure enterprise practices.
 
 ## Email Service
 
-- Gmail SMTP
+- Resend HTTPS API
 
 ---
 
@@ -349,10 +349,9 @@ VITE_FIREBASE_APP_ID=
 ## Backend
 
 ```env
-SMTP_HOST=
-SMTP_PORT=
-SMTP_USERNAME=
-SMTP_PASSWORD=
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+RESEND_FROM_NAME=Nova HR
 FIREBASE_SERVICE_ACCOUNT=
 ```
 

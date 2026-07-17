@@ -8,11 +8,8 @@ import com.novaos.api.entity.Candidate;
 import com.novaos.api.entity.Employee;
 import com.novaos.api.repository.EmployeeRepository;
 import com.novaos.api.ai.GeminiService;
-import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,18 +20,15 @@ public class RecruitmentService {
     private final CandidateService candidateService;
     private final EmployeeRepository employeeRepository;
     private final GeminiService geminiService;
-    private final JavaMailSender mailSender;
     private final ResendEmailService resendEmailService;
 
     public RecruitmentService(CandidateService candidateService,
                               EmployeeRepository employeeRepository,
                               GeminiService geminiService,
-                              JavaMailSender mailSender,
                               ResendEmailService resendEmailService) {
         this.candidateService = candidateService;
         this.employeeRepository = employeeRepository;
         this.geminiService = geminiService;
-        this.mailSender = mailSender;
         this.resendEmailService = resendEmailService;
     }
 
@@ -124,34 +118,16 @@ public class RecruitmentService {
         try {
             String setupLink = FirebaseAuth.getInstance().generatePasswordResetLink(email);
 
-            if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
-                String body = String.format(
-                    "Hi %s,\n\n" +
-                    "Welcome aboard as %s! Your NovaOS employee account has been created.\n\n" +
-                    "Set your password here to activate it:\n%s\n\n" +
-                    "If you weren't expecting this, please contact HR.\n\n" +
-                    "Best,\nNovaOS Talent Acquisition Team",
-                    name, role, setupLink
-                );
-                resendEmailService.sendEmail(email, "Welcome to NovaOS - Set up your account", body, null, null);
-                logger.info("Sent onboarding welcome email via Resend to {}", email);
-                return;
-            }
-
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-            helper.setTo(email);
-            helper.setSubject("Welcome to NovaOS - Set up your account");
-            helper.setText(String.format(
+            String body = String.format(
                 "Hi %s,\n\n" +
                 "Welcome aboard as %s! Your NovaOS employee account has been created.\n\n" +
                 "Set your password here to activate it:\n%s\n\n" +
                 "If you weren't expecting this, please contact HR.\n\n" +
                 "Best,\nNovaOS Talent Acquisition Team",
                 name, role, setupLink
-            ));
-            mailSender.send(message);
-            logger.info("Sent onboarding welcome email to {}", email);
+            );
+            resendEmailService.sendEmail(email, "Welcome to NovaOS - Set up your account", body, null, null);
+            logger.info("Sent onboarding welcome email via Resend to {}", email);
         } catch (Exception e) {
             logger.error("Employee account was created but the welcome email failed to send to {}: {}",
                     email, e.getMessage());

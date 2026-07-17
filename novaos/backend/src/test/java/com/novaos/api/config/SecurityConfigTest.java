@@ -12,7 +12,6 @@ import com.novaos.api.repository.EmployeeRepository;
 import com.novaos.api.service.CandidateService;
 import com.novaos.api.service.HiringPolicyEngine;
 import com.novaos.api.service.RecruitmentService;
-import com.novaos.api.service.SmtpConnectivityService;
 import com.novaos.api.service.WorkflowService;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -32,28 +31,21 @@ class SecurityConfigTest {
     @MockBean WorkflowService workflowService;
     @MockBean EmployeeRepository employeeRepository;
     @MockBean HiringPolicyEngine hiringPolicyEngine;
-    @MockBean SmtpConnectivityService smtpConnectivityService;
 
     @Test void missingTokenReturns401() throws Exception {
         passThroughFilter();
-        mvc.perform(get("/api/admin/email-diagnostic")).andExpect(status().isUnauthorized());
-    }
-
-    @Test void wrongRoleReturns403() throws Exception {
-        passThroughFilter();
-        mvc.perform(get("/api/admin/email-diagnostic").with(user("manager").roles("HIRING_MANAGER")))
-                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/dashboard")).andExpect(status().isUnauthorized());
     }
 
     @Test void hrAdminIsAuthorized() throws Exception {
         passThroughFilter();
-        mvc.perform(get("/api/admin/email-diagnostic").with(user("hr").roles("HR_ADMIN")))
+        mvc.perform(get("/api/dashboard").with(user("hr").roles("HR_ADMIN")))
                 .andExpect(status().isOk());
     }
 
     @Test void superAdminIsAuthorized() throws Exception {
         passThroughFilter();
-        mvc.perform(get("/api/admin/email-diagnostic").with(user("super").roles("SUPER_ADMIN")))
+        mvc.perform(get("/api/dashboard").with(user("super").roles("SUPER_ADMIN")))
                 .andExpect(status().isOk());
     }
 

@@ -18,12 +18,9 @@ import com.itextpdf.text.pdf.PdfPTable;
 import com.itextpdf.text.pdf.PdfWriter;
 import com.novaos.api.ai.GeminiService;
 import com.novaos.api.dto.HiringPassportDtos.*;
-import jakarta.mail.internet.MimeMessage;
+import com.novaos.api.exception.EmailProviderException;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -48,36 +45,15 @@ public class HiringDecisionPassportService {
             "department", "location", "manager", "probationMonths", "requiredSkills");
 
     private final GeminiService gemini;
-    private final JavaMailSender mailSender;
-    private final String mailUsername;
-    private final String mailPassword;
-    private final String mailFrom;
     private final String mailFromName;
-    private final String mailHost;
-    private final int mailPort;
-    private final SmtpErrorMapper smtpErrorMapper;
-    private final SmtpFailureLogger smtpFailureLogger;
+    private final ResendEmailService resendEmailService;
 
-    public HiringDecisionPassportService(GeminiService gemini, JavaMailSender mailSender,
-            @Value("${spring.mail.username:}") String mailUsername,
-            @Value("${spring.mail.password:}") String mailPassword,
-            @Value("${nova.mail.from:${spring.mail.username:}}") String mailFrom,
-            @Value("${nova.mail.from-name:Nova OS}") String mailFromName,
-            @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
-            SmtpErrorMapper smtpErrorMapper, SmtpFailureLogger smtpFailureLogger) {
+    public HiringDecisionPassportService(GeminiService gemini,
+            @Value("${nova.resend.from-name:Nova HR}") String mailFromName,
+            ResendEmailService resendEmailService) {
         this.gemini = gemini;
-        this.mailSender = mailSender;
-        this.mailUsername = trim(mailUsername);
-        this.mailPassword = trim(mailPassword);
-        this.mailFrom = this.mailUsername;
         this.mailFromName = trim(mailFromName);
-        this.mailHost = trim(mailHost);
-        this.mailPort = mailPort;
-        this.smtpErrorMapper = smtpErrorMapper;
-        this.smtpFailureLogger = smtpFailureLogger;
-        if (StringUtils.hasText(mailFrom) && !trim(mailFrom).equalsIgnoreCase(this.mailUsername)) {
-            logger.warn("MAIL_FROM differs from MAIL_USERNAME; Gmail delivery will use MAIL_USERNAME as the sender identity.");
-        }
+        this.resendEmailService = resendEmailService;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -302,8 +278,6 @@ public class HiringDecisionPassportService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Email delivery is available only after final approval or after a failed attempt.");
             }
 
-            requireMailCredentials();
-
             Map<String, Object> details = castMap(workflow.get("extractedDetails"));
             String email = String.valueOf(details.get("email"));
             if (!StringUtils.hasText(email) || !EMAIL.matcher(email).matches()) {
@@ -315,10 +289,9 @@ public class HiringDecisionPassportService {
             try {
                 pdfContent = offerPdf(requestId, details);
             } catch (Exception attachmentError) {
-                SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, attachmentError,
-                        "ATTACHMENT_GENERATION", email, mailFrom, emailSubject, 0);
+                logger.error("Offer PDF generation failed for request {}", requestId, attachmentError);
                 throw new com.novaos.api.exception.EmailDeliveryException(
-                        "The offer letter was generated, but email delivery failed.", analysis.errorCode(), attachmentError);
+                        "The offer letter was generated, but email delivery failed.", "ATTACHMENT_GENERATION_FAILED", attachmentError);
             }
             Instant attemptAt = Instant.now();
             workflow = db.runTransaction(transaction -> {
@@ -342,29 +315,23 @@ public class HiringDecisionPassportService {
 
             String filename = offerFileName(String.valueOf(details.get("name")), requestId);
             String messageId = "";
-            String deliveryStage = "MIME_MESSAGE_CREATION";
+            String deliveryProvider = resendEmailService.providerId();
             try {
-                logger.info("Sending offer email via SMTP host={}, port={}, recipient={}, sender={}, subject={}, attachmentSizeBytes={}",
-                        mailHost, mailPort, email, mailFrom, emailSubject, pdfContent.length);
-                MimeMessage message = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-                deliveryStage = "MIME_SET_FROM";
-                helper.setFrom(mailFrom, mailFromName);
-                deliveryStage = "MIME_SET_TO";
-                helper.setTo(email);
-                deliveryStage = "MIME_SET_SUBJECT";
-                helper.setSubject(emailSubject);
-                deliveryStage = "MIME_SET_BODY";
-                helper.setText("Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
-                deliveryStage = "MIME_ADD_ATTACHMENT";
-                helper.addAttachment(filename, new ByteArrayResource(pdfContent), "application/pdf");
-                deliveryStage = "JAVA_MAIL_SEND";
-                mailSender.send(message);
-                messageId = Objects.toString(message.getMessageID(), "");
+                String emailBody = "Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName;
+                long attemptNumber = Optional.ofNullable(workflow.getLong("emailAttemptCount")).orElse(0L) + 1;
+                EmailDeliveryReceipt receipt = resendEmailService.send(new EmailDeliveryRequest(
+                        requestId + "-" + attemptNumber, email, emailSubject, emailBody, filename, pdfContent));
+                messageId = receipt.messageId();
+                deliveryProvider = receipt.provider();
             } catch (Exception mailError) {
-                SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, mailError, deliveryStage,
-                        email, mailFrom, emailSubject, pdfContent.length);
-                String errorCode = analysis.errorCode();
+                String errorCode;
+                if (mailError instanceof EmailProviderException providerError) {
+                    errorCode = providerError.getErrorCode();
+                    deliveryProvider = providerError.getProvider();
+                } else {
+                    logger.error("Resend delivery failed for request {}", requestId, mailError);
+                    errorCode = "EMAIL_DELIVERY_FAILED";
+                }
                 String safeError = "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
                 
                 workflowRef.set(Map.of(
@@ -372,7 +339,7 @@ public class HiringDecisionPassportService {
                     "emailStatus", "FAILED",
                     "emailErrorCode", errorCode,
                     "emailError", safeError,
-                    "emailProvider", "GMAIL_SMTP",
+                    "emailProvider", deliveryProvider,
                     "emailRecipient", email,
                     "emailSubject", "Offer of Employment | Nova OS",
                     "lastEmailAttemptAt", Instant.now().toString(),
@@ -384,6 +351,8 @@ public class HiringDecisionPassportService {
                         .set(audit(requestId, "EMAIL_FAILED", actor, safeError)).get();
                 
                 throw new com.novaos.api.exception.EmailDeliveryException("The offer letter was generated, but email delivery failed.", errorCode, mailError);
+            } finally {
+                Arrays.fill(pdfContent, (byte) 0);
             }
 
             Instant sentAt = Instant.now();
@@ -392,7 +361,7 @@ public class HiringDecisionPassportService {
                 "lastCompletedState", "EMAIL_SENT",
                 "emailStatus", "SENT",
                 "emailSentAt", sentAt.toString(),
-                "emailProvider", "GMAIL_SMTP",
+                "emailProvider", deliveryProvider,
                 "emailRecipient", email,
                 "emailSubject", "Offer of Employment | Nova OS",
                 "updatedAt", sentAt.toString(),
@@ -401,7 +370,7 @@ public class HiringDecisionPassportService {
             db.collection("documents").document(requestId + "-offer")
                     .set(documentMetadata(requestId, details, filename, "SENT", sentAt.toString(), actor, null)).get();
             db.collection("auditLogs").document(requestId + "-EMAIL_SENT-" + (resend ? sentAt.toEpochMilli() : "INITIAL"))
-                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, "SMTP accepted the offer PDF attachment.")).get();
+                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, "Resend accepted the offer PDF attachment.")).get();
             createEmployee(db, requestId, details, actor);
             return passport(requestId);
         } catch (ResponseStatusException e) {
@@ -603,7 +572,7 @@ public class HiringDecisionPassportService {
         batch.set(db.collection("workflowRequests").document(requestId), Map.of("state", "EMPLOYEE_CREATED",
                 "lastCompletedState", "EMPLOYEE_CREATED", "employeeCreated", true, "employeeCreatedAt", now.toString(), "updatedAt", now.toString()), SetOptions.merge());
         batch.create(db.collection("auditLogs").document(requestId + "-EMPLOYEE_CREATED"),
-                audit(requestId, "EMPLOYEE_CREATED", actor, "Employee created only after successful SMTP delivery."));
+                audit(requestId, "EMPLOYEE_CREATED", actor, "Employee created only after successful Resend delivery."));
         batch.commit().get();
     }
 
@@ -635,19 +604,6 @@ public class HiringDecisionPassportService {
         pdf.add(new Paragraph("\nSincerely,\nNovaOS Human Resources", bold));
         pdf.close();
         return out.toByteArray();
-    }
-
-    private void sendEmail(Map<String, Object> c, byte[] pdf, String requestId) throws Exception {
-        String recipient = String.valueOf(c.get("email"));
-        logger.info("Sending offer email via SMTP host={}, port={}, recipient={}", mailHost, mailPort, recipient);
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-        helper.setFrom(mailFrom, mailFromName);
-        helper.setTo(recipient);
-        helper.setSubject("Your Offer Letter – " + mailFromName);
-        helper.setText("Dear " + c.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
-        helper.addAttachment(offerFileName(String.valueOf(c.get("name")), requestId), new ByteArrayResource(pdf), "application/pdf");
-        mailSender.send(message);
     }
 
     private Map<String, Object> documentMetadata(String requestId, Map<String, Object> details, String filename,
@@ -694,15 +650,6 @@ public class HiringDecisionPassportService {
         if (!user.exists()) throw forbidden("Authenticated user profile is missing from users/" + uid);
         return Map.of("uid", uid, "email", Objects.toString(user.get("email"), ""),
                 "role", normalizeRole(Objects.toString(user.get("role"), "")));
-    }
-
-    private void requireMailCredentials() {
-        if (!StringUtils.hasText(mailUsername))
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "MAIL_USERNAME is missing. Set MAIL_USERNAME in environment variables or backend/.env.");
-        if (!StringUtils.hasText(mailPassword))
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "MAIL_PASSWORD is missing. Create a Google Account App Password at https://myaccount.google.com/apppasswords and set MAIL_PASSWORD in environment variables or backend/.env.");
     }
 
     private Firestore db() {
