@@ -8,6 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
+import { formatNormalizedDate } from "./lib/dateUtils";
 import { NotificationProvider } from "./context/ToastContext";
 import Sidebar from "./components/Sidebar";
 import Login from "./pages/Login";
@@ -101,10 +102,7 @@ const NotificationBell = () => {
                       {item.message}
                     </span>
                     <span className="text-[8px] text-gray-500">
-                      {new Date(item.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatNormalizedDate(item.createdAt)}
                     </span>
                   </div>
                   {item.sub && (

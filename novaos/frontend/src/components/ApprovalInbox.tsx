@@ -4,25 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { FileCheck, ShieldCheck, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { normalizeDate } from '../lib/dateUtils';
+import { formatNormalizedDate } from '../lib/dateUtils';
 
 const formatApprovalTime = (v: any) => {
-  const d = normalizeDate(v);
-  if (!d) return '—';
-  if (Number.isNaN(d.getTime())) return '—';
-  const day = d.getDate();
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-  const month = monthNames[d.getMonth()];
-  const year = d.getFullYear();
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'AM' : 'PM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  return `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+  const formatted = formatNormalizedDate(v);
+  return formatted === 'Time unavailable' ? '—' : formatted;
 };
 
 const formatStage = (status: string) => {

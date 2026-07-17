@@ -5,6 +5,7 @@ import com.google.firebase.cloud.FirestoreClient;
 import com.novaos.api.entity.Employee;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -71,7 +72,7 @@ public class EmployeeRepository {
         employee.setCtc(asString(data.get("ctc")));
         employee.setFirebaseUid(asString(data.get("firebaseUid")));
         employee.setStatus(asString(data.get("status")));
-        employee.setCreatedDate(asLocalDateTime(data.get("createdDate")));
+        employee.setCreatedDate(asInstant(data.get("createdDate")));
         return employee;
     }
 
@@ -86,8 +87,8 @@ public class EmployeeRepository {
         data.put("ctc", employee.getCtc());
         data.put("firebaseUid", employee.getFirebaseUid());
         data.put("status", employee.getStatus());
-        data.put("createdDate", employee.getCreatedDate() != null ? employee.getCreatedDate().toString() : LocalDateTime.now().toString());
-        data.put("joinedAt", employee.getCreatedDate() != null ? employee.getCreatedDate().toString() : LocalDateTime.now().toString());
+        data.put("createdDate", employee.getCreatedDate() != null ? employee.getCreatedDate().toString() : Instant.now().toString());
+        data.put("joinedAt", employee.getCreatedDate() != null ? employee.getCreatedDate().toString() : Instant.now().toString());
         return data;
     }
 
@@ -95,14 +96,18 @@ public class EmployeeRepository {
         return value != null ? value.toString() : null;
     }
 
-    private LocalDateTime asLocalDateTime(Object value) {
+    private Instant asInstant(Object value) {
         if (value == null || value.toString().isBlank()) {
-            return LocalDateTime.now();
+            return Instant.now();
         }
         try {
-            return LocalDateTime.parse(value.toString());
-        } catch (Exception ignored) {
-            return LocalDateTime.now();
+            return Instant.parse(value.toString());
+        } catch (Exception e) {
+            try {
+                return LocalDateTime.parse(value.toString()).toInstant(java.time.ZoneOffset.UTC);
+            } catch (Exception ex) {
+                return Instant.now();
+            }
         }
     }
 }

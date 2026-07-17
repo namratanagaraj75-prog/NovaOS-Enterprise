@@ -61,7 +61,9 @@ public class HiringWorkflowRules {
             case "PENDING_LEGAL_APPROVAL" -> List.of("APPROVALS_COMPLETED", "REJECTED", "CHANGES_REQUESTED").contains(to);
             case "CHANGES_REQUESTED" -> "DRAFT".equals(to);
             case "APPROVED", "LEGAL_APPROVED", "APPROVALS_COMPLETED" -> List.of("GENERATING_OFFER", "OFFER_GENERATED").contains(to);
-            case "OFFER_GENERATED" -> List.of("EMAIL_SENDING", "WORKFLOW_COMPLETED").contains(to);
+            case "OFFER_GENERATED" -> List.of("EMAIL_SENDING", "EMAIL_SENT", "EMAIL_FAILED", "WORKFLOW_COMPLETED").contains(to);
+            case "EMAIL_SENDING" -> List.of("EMAIL_SENT", "EMAIL_FAILED").contains(to);
+            case "EMAIL_FAILED" -> List.of("EMAIL_SENDING", "EMAIL_SENT", "EMAIL_FAILED").contains(to);
             default -> false;
         };
     }

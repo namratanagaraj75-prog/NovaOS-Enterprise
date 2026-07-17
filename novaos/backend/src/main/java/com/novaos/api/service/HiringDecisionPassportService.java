@@ -60,8 +60,8 @@ public class HiringDecisionPassportService {
     public HiringDecisionPassportService(GeminiService gemini, JavaMailSender mailSender,
             @Value("${spring.mail.username:}") String mailUsername,
             @Value("${spring.mail.password:}") String mailPassword,
-            @Value("${email.from.address:${spring.mail.username:}}") String mailFrom,
-            @Value("${email.from.name:Nova HR}") String mailFromName,
+            @Value("${nova.mail.from:${spring.mail.username:}}") String mailFrom,
+            @Value("${nova.mail.from-name:Nova OS}") String mailFromName,
             @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
             ResendEmailService resendEmailService) {
         this.gemini = gemini;
@@ -286,67 +286,124 @@ public class HiringDecisionPassportService {
             DocumentSnapshot workflow = workflowRef.get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             String currentEmailStatus = Objects.toString(workflow.get("emailStatus"), "");
-            if ("SENT".equals(currentEmailStatus)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Offer already sent; duplicate delivery is blocked.");
-            if ("FAILED".equals(currentEmailStatus) && !resend) throw new ResponseStatusException(HttpStatus.CONFLICT, "Use explicit retry confirmation after an email failure.");
-            if (!"FAILED".equals(currentEmailStatus) && !"OFFER_GENERATED".equals(String.valueOf(workflow.get("state"))))
+            String state = String.valueOf(workflow.get("state"));
+            if ("EMAIL_SENT".equals(state) || "SENT".equals(currentEmailStatus) || workflow.get("emailSentAt") != null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Offer already sent; duplicate delivery is blocked.");
+            }
+            if (resend && !"EMAIL_FAILED".equals(state) && !"FAILED".equals(currentEmailStatus)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Manual retry is available only when the status is EMAIL_FAILED.");
+            }
+            if (!resend && !"FAILED".equals(currentEmailStatus) && !"OFFER_GENERATED".equals(state)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Email delivery is available only after final approval or after a failed attempt.");
+            }
 
             requireMailCredentials();
 
             Map<String, Object> details = castMap(workflow.get("extractedDetails"));
+            String email = String.valueOf(details.get("email"));
+            if (!StringUtils.hasText(email) || !EMAIL.matcher(email).matches()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid candidate email address.");
+            }
+
             byte[] pdfContent = offerPdf(requestId, details);
 
             workflowRef.set(Map.of("state", "EMAIL_PENDING", "emailStatus", "PENDING", "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
             String filename = offerFileName(String.valueOf(details.get("name")), requestId);
             String messageId = "";
             try {
-                if ("resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER"))) {
-                    String recipient = String.valueOf(details.get("email"));
-                    String subject = "Your Offer Letter – " + mailFromName;
-                    String body = "Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName;
-                    messageId = resendEmailService.sendEmail(recipient, subject, body, filename, pdfContent);
-                } else {
-                    logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, mailFrom, details.get("email"));
-                    MimeMessage message = mailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-                    helper.setFrom(mailFrom, mailFromName);
-                    helper.setTo(String.valueOf(details.get("email")));
-                    helper.setSubject("Your Offer Letter – " + mailFromName);
-                    helper.setText("Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
-                    helper.addAttachment(filename, new ByteArrayResource(pdfContent), "application/pdf");
-                    mailSender.send(message);
-                    messageId = Objects.toString(message.getMessageID(), "");
-                }
+                logger.info("Sending offer email via SMTP host={}, port={}, sender={}, recipient={}", mailHost, mailPort, mailFrom, email);
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+                helper.setFrom(mailFrom, mailFromName);
+                helper.setTo(email);
+                helper.setSubject("Offer of Employment | Nova OS");
+                helper.setText("Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
+                helper.addAttachment(filename, new ByteArrayResource(pdfContent), "application/pdf");
+                mailSender.send(message);
+                messageId = Objects.toString(message.getMessageID(), "");
             } catch (Exception mailError) {
-                String provider = System.getenv("EMAIL_PROVIDER");
-                logger.error("Email delivery failed via provider={}, recipient={}; root cause: {}", provider, details.get("email"), rootCauseMessage(mailError), mailError);
+                logger.error("Email delivery failed via recipient={}; root cause: {}", email, rootCauseMessage(mailError), mailError);
                 String safeError = safeMessage(mailError);
+                String errorCode = getErrorCode(mailError);
                 
-                workflowRef.set(Map.of("state", "OFFER_GENERATED", "emailStatus", "FAILED",
-                        "emailError", safeError, "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
+                workflowRef.set(Map.of(
+                    "state", "EMAIL_FAILED",
+                    "emailStatus", "FAILED",
+                    "emailErrorCode", errorCode,
+                    "emailError", safeError,
+                    "emailProvider", "GMAIL_SMTP",
+                    "emailRecipient", email,
+                    "emailSubject", "Offer of Employment | Nova OS",
+                    "updatedAt", Instant.now().toString()
+                ), SetOptions.merge()).get();
                 db.collection("documents").document(requestId + "-offer")
                         .set(documentMetadata(requestId, details, filename, "FAILED", null, actor, safeError), SetOptions.merge()).get();
                 db.collection("auditLogs").document(requestId + "-EMAIL_FAILED-" + System.currentTimeMillis())
                         .set(audit(requestId, "EMAIL_FAILED", actor, safeError)).get();
                 
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Email delivery failed: " + safeError);
+                throw new com.novaos.api.exception.EmailDeliveryException("The offer letter was generated, but email delivery failed.", errorCode, mailError);
             }
 
             Instant sentAt = Instant.now();
-            workflowRef.set(Map.of("state", "EMAIL_SENT", "lastCompletedState", "EMAIL_SENT", "emailStatus", "SENT",
-                    "emailSentAt", sentAt.toString(), "updatedAt", sentAt.toString(), "emailMessageId", messageId), SetOptions.merge()).get();
+            workflowRef.set(Map.of(
+                "state", "EMAIL_SENT",
+                "lastCompletedState", "EMAIL_SENT",
+                "emailStatus", "SENT",
+                "emailSentAt", sentAt.toString(),
+                "emailProvider", "GMAIL_SMTP",
+                "emailRecipient", email,
+                "emailSubject", "Offer of Employment | Nova OS",
+                "updatedAt", sentAt.toString(),
+                "emailMessageId", messageId
+            ), SetOptions.merge()).get();
             db.collection("documents").document(requestId + "-offer")
                     .set(documentMetadata(requestId, details, filename, "SENT", sentAt.toString(), actor, null)).get();
             db.collection("auditLogs").document(requestId + "-EMAIL_SENT-" + (resend ? sentAt.toEpochMilli() : "INITIAL"))
-                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, 
-                            "resend".equalsIgnoreCase(System.getenv("EMAIL_PROVIDER")) ? "Resend accepted the offer PDF attachment." : "SMTP accepted the offer PDF attachment.")).get();
+                    .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, "SMTP accepted the offer PDF attachment.")).get();
             createEmployee(db, requestId, details, actor);
             return passport(requestId);
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
+            if (e instanceof com.novaos.api.exception.EmailDeliveryException) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, e.getMessage(), e);
+            }
             throw server("Offer delivery could not be completed", e);
         }
+    }
+
+    private String getErrorCode(Throwable error) {
+        String msg = error.getMessage();
+        if (msg == null) return "SMTP_DELIVERY_FAILED";
+        
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String rootMsg = cause.getMessage() != null ? cause.getMessage() : "";
+        String fullMsg = (msg + " " + rootMsg).toLowerCase(Locale.ROOT);
+        
+        if (fullMsg.contains("username and password not accepted") 
+                || fullMsg.contains("authenticationfailedexception") 
+                || fullMsg.contains("535-5.7.8") || fullMsg.contains("535 5.7.8")) {
+            return "SMTP_AUTH_FAILED";
+        }
+        if (fullMsg.contains("connection timeout") || fullMsg.contains("connection timed out") || fullMsg.contains("timed out")) {
+            return "SMTP_CONNECTION_TIMEOUT";
+        }
+        if (fullMsg.contains("tls") || fullMsg.contains("ssl") || fullMsg.contains("handshake") || fullMsg.contains("starttls")) {
+            return "TLS_FAILURE";
+        }
+        if (fullMsg.contains("invalid recipient") || fullMsg.contains("invalid addresses") || fullMsg.contains("recipient address rejected") || fullMsg.contains("invalid email")) {
+            return "INVALID_RECIPIENT";
+        }
+        if (fullMsg.contains("rate limit") || fullMsg.contains("too many") || fullMsg.contains("421")) {
+            return "RATE_LIMIT_EXCEEDED";
+        }
+        if (fullMsg.contains("mail_username") || fullMsg.contains("mail_password") || fullMsg.contains("missing")) {
+            return "MISSING_CONFIG";
+        }
+        return "SMTP_DELIVERY_FAILED";
     }
 
     public Map<String, Object> whatIf(String requestId, WhatIfRequest change, Authentication auth) {

@@ -5,6 +5,7 @@ import com.google.firebase.cloud.FirestoreClient;
 import com.novaos.api.entity.Workflow;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -64,7 +65,7 @@ public class WorkflowRepository {
         workflow.setTriggerEvent(asString(data.get("triggerEvent")));
         workflow.setActive(asBoolean(data.get("active"), true));
         workflow.setSuccessRate(asDouble(data.get("successRate"), 100.0));
-        workflow.setCreatedAt(asLocalDateTime(data.get("createdAt")));
+        workflow.setCreatedAt(asInstant(data.get("createdAt")));
         return workflow;
     }
 
@@ -76,7 +77,7 @@ public class WorkflowRepository {
         data.put("triggerEvent", workflow.getTriggerEvent());
         data.put("active", workflow.getActive());
         data.put("successRate", workflow.getSuccessRate());
-        data.put("createdAt", workflow.getCreatedAt() != null ? workflow.getCreatedAt().toString() : LocalDateTime.now().toString());
+        data.put("createdAt", workflow.getCreatedAt() != null ? workflow.getCreatedAt().toString() : Instant.now().toString());
         return data;
     }
 
@@ -92,14 +93,18 @@ public class WorkflowRepository {
         return value instanceof Number number ? number.doubleValue() : fallback;
     }
 
-    private LocalDateTime asLocalDateTime(Object value) {
+    private Instant asInstant(Object value) {
         if (value == null || value.toString().isBlank()) {
-            return LocalDateTime.now();
+            return Instant.now();
         }
         try {
-            return LocalDateTime.parse(value.toString());
-        } catch (Exception ignored) {
-            return LocalDateTime.now();
+            return Instant.parse(value.toString());
+        } catch (Exception e) {
+            try {
+                return LocalDateTime.parse(value.toString()).toInstant(java.time.ZoneOffset.UTC);
+            } catch (Exception ex) {
+                return Instant.now();
+            }
         }
     }
 }
