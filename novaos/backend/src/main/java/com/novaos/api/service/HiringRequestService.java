@@ -34,16 +34,18 @@ public class HiringRequestService {
     private final String mailHost;
     private final int mailPort;
     private final SmtpErrorMapper smtpErrorMapper;
+    private final SmtpFailureLogger smtpFailureLogger;
 
     public HiringRequestService(HiringCommandParser parser, HiringWorkflowRules rules, HiringPolicyEngine policyEngine, OfferLetterPdfService pdf,
             JavaMailSender mail, @Value("${nova.mail.from-name:Nova OS}") String fromName,
             @Value("${nova.mail.from:${spring.mail.username:}}") String fromAddress,
             @Value("${spring.mail.username:}") String mailUsername,
             @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
-            SmtpErrorMapper smtpErrorMapper) {
+            SmtpErrorMapper smtpErrorMapper, SmtpFailureLogger smtpFailureLogger) {
         this.parser=parser; this.rules=rules; this.policyEngine=policyEngine; this.pdf=pdf; this.mail=mail;
         this.fromName=trim(fromName); this.fromAddress=trim(mailUsername); this.mailHost=trim(mailHost); this.mailPort=mailPort;
         this.smtpErrorMapper = smtpErrorMapper;
+        this.smtpFailureLogger = smtpFailureLogger;
         if (StringUtils.hasText(fromAddress) && !trim(fromAddress).equalsIgnoreCase(this.fromAddress)) {
             logger.warn("MAIL_FROM differs from MAIL_USERNAME; Gmail delivery will use MAIL_USERNAME as the sender identity.");
         }
@@ -357,7 +359,16 @@ public class HiringRequestService {
         Map<String,Object> values=new HashMap<>(preview.getData());
         values.put("offerReferenceId","NOVA-"+id.substring(0,Math.min(8,id.length())).toUpperCase());
         values.put("approvalSummary",approvalSummary(preview));
-        byte[] pdfBytes = pdf.generate(values);
+        final String emailSubject = "Offer of Employment | Nova OS";
+        byte[] pdfBytes;
+        try {
+            pdfBytes = pdf.generate(values);
+        } catch (Exception attachmentError) {
+            SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, attachmentError,
+                    "ATTACHMENT_GENERATION", email, fromAddress, emailSubject, 0);
+            throw new com.novaos.api.exception.EmailDeliveryException(
+                    "The offer letter was generated, but email delivery failed.", analysis.errorCode(), attachmentError);
+        }
 
         Timestamp started=Timestamp.now();
         DocumentSnapshot d = db.runTransaction(transaction -> {
@@ -390,21 +401,29 @@ public class HiringRequestService {
         String startDetails = isResend ? "Manual SMTP delivery resend started by " + actor.get("name") + "." : (isRetry ? "Manual SMTP delivery retry started." : "Secure backend SMTP delivery started.");
         ref.update(Map.of("emailRecipient",email,"activityHistory",FieldValue.arrayUnion(activityAt(startAction,actor,startDetails,started,id)))).get();
         
+        String deliveryStage = "MIME_MESSAGE_CREATION";
         try{
             String messageId = "";
-            logger.info("Sending offer email via SMTP host={}, port={}, recipient={}", mailHost, mailPort, email);
+            logger.info("Sending offer email via SMTP host={}, port={}, recipient={}, sender={}, subject={}, attachmentSizeBytes={}",
+                    mailHost, mailPort, email, fromAddress, emailSubject, pdfBytes.length);
             MimeMessage message=mail.createMimeMessage();
             MimeMessageHelper helper=new MimeMessageHelper(message,true,"UTF-8");
+            deliveryStage = "MIME_SET_FROM";
             helper.setFrom(fromAddress,fromName);
+            deliveryStage = "MIME_SET_TO";
             helper.setTo(email);
-            helper.setSubject("Offer of Employment | Nova OS");
+            deliveryStage = "MIME_SET_SUBJECT";
+            helper.setSubject(emailSubject);
+            deliveryStage = "MIME_SET_BODY";
             helper.setText(buildEmailBody(candidateName), false);
+            deliveryStage = "MIME_ADD_ATTACHMENT";
             helper.addAttachment(filename, new ByteArrayResource(pdfBytes), "application/pdf");
-            
+            deliveryStage = "MIME_SAVE_CHANGES";
             message.saveChanges();
             messageId=Objects.toString(message.getMessageID(),"");
+            deliveryStage = "JAVA_MAIL_SEND";
             mail.send(message);
-            
+            deliveryStage = "POST_SEND_METADATA";
             Timestamp sent=Timestamp.now();
             
             String successAction = isResend ? "EMAIL_RESEND_SUCCESS" : (isRetry ? "EMAIL_RETRY_SUCCESS" : "EMAIL_SENT");
@@ -442,9 +461,10 @@ public class HiringRequestService {
             writeNotification(db, id, "HR_ADMIN", "Email sent", "Offer letter email delivered to " + email);
         }catch(Exception error){
             Timestamp failed=Timestamp.now();
-            String errorCode = smtpErrorMapper.code(error);
+            SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, error, deliveryStage,
+                    email, fromAddress, emailSubject, pdfBytes.length);
+            String errorCode = analysis.errorCode();
             String errorMsg = "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
-            logger.error("Email delivery failed via recipient={}; root cause: {}", email, rootCauseMessage(error), error);
             
             String failureAction = isResend ? "EMAIL_RESEND_FAILED" : (isRetry ? "EMAIL_RETRY_FAILED" : "EMAIL_FAILED");
             String failureDetails = isResend ? "Manual email resend failed. "+errorMsg : (isRetry ? "Email retry failed; PDF generation metadata preserved. "+errorMsg : "Email failed; PDF generation metadata preserved for retry. "+errorMsg);

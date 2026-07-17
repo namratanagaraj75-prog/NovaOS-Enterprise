@@ -56,6 +56,7 @@ public class HiringDecisionPassportService {
     private final String mailHost;
     private final int mailPort;
     private final SmtpErrorMapper smtpErrorMapper;
+    private final SmtpFailureLogger smtpFailureLogger;
 
     public HiringDecisionPassportService(GeminiService gemini, JavaMailSender mailSender,
             @Value("${spring.mail.username:}") String mailUsername,
@@ -63,7 +64,7 @@ public class HiringDecisionPassportService {
             @Value("${nova.mail.from:${spring.mail.username:}}") String mailFrom,
             @Value("${nova.mail.from-name:Nova OS}") String mailFromName,
             @Value("${spring.mail.host}") String mailHost, @Value("${spring.mail.port}") int mailPort,
-            SmtpErrorMapper smtpErrorMapper) {
+            SmtpErrorMapper smtpErrorMapper, SmtpFailureLogger smtpFailureLogger) {
         this.gemini = gemini;
         this.mailSender = mailSender;
         this.mailUsername = trim(mailUsername);
@@ -73,6 +74,7 @@ public class HiringDecisionPassportService {
         this.mailHost = trim(mailHost);
         this.mailPort = mailPort;
         this.smtpErrorMapper = smtpErrorMapper;
+        this.smtpFailureLogger = smtpFailureLogger;
         if (StringUtils.hasText(mailFrom) && !trim(mailFrom).equalsIgnoreCase(this.mailUsername)) {
             logger.warn("MAIL_FROM differs from MAIL_USERNAME; Gmail delivery will use MAIL_USERNAME as the sender identity.");
         }
@@ -308,7 +310,16 @@ public class HiringDecisionPassportService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid candidate email address.");
             }
 
-            byte[] pdfContent = offerPdf(requestId, details);
+            final String emailSubject = "Offer of Employment | Nova OS";
+            byte[] pdfContent;
+            try {
+                pdfContent = offerPdf(requestId, details);
+            } catch (Exception attachmentError) {
+                SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, attachmentError,
+                        "ATTACHMENT_GENERATION", email, mailFrom, emailSubject, 0);
+                throw new com.novaos.api.exception.EmailDeliveryException(
+                        "The offer letter was generated, but email delivery failed.", analysis.errorCode(), attachmentError);
+            }
             Instant attemptAt = Instant.now();
             workflow = db.runTransaction(transaction -> {
                 DocumentSnapshot current = transaction.get(workflowRef).get();
@@ -331,20 +342,29 @@ public class HiringDecisionPassportService {
 
             String filename = offerFileName(String.valueOf(details.get("name")), requestId);
             String messageId = "";
+            String deliveryStage = "MIME_MESSAGE_CREATION";
             try {
-                logger.info("Sending offer email via SMTP host={}, port={}, recipient={}", mailHost, mailPort, email);
+                logger.info("Sending offer email via SMTP host={}, port={}, recipient={}, sender={}, subject={}, attachmentSizeBytes={}",
+                        mailHost, mailPort, email, mailFrom, emailSubject, pdfContent.length);
                 MimeMessage message = mailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+                deliveryStage = "MIME_SET_FROM";
                 helper.setFrom(mailFrom, mailFromName);
+                deliveryStage = "MIME_SET_TO";
                 helper.setTo(email);
-                helper.setSubject("Offer of Employment | Nova OS");
+                deliveryStage = "MIME_SET_SUBJECT";
+                helper.setSubject(emailSubject);
+                deliveryStage = "MIME_SET_BODY";
                 helper.setText("Dear " + details.get("name") + ",\n\nCongratulations! Your offer letter has been approved and generated successfully.\n\nPlease find your offer letter attached to this email. Kindly review the document carefully.\n\nRegards,\nHR Team\n" + mailFromName);
+                deliveryStage = "MIME_ADD_ATTACHMENT";
                 helper.addAttachment(filename, new ByteArrayResource(pdfContent), "application/pdf");
+                deliveryStage = "JAVA_MAIL_SEND";
                 mailSender.send(message);
                 messageId = Objects.toString(message.getMessageID(), "");
             } catch (Exception mailError) {
-                logger.error("Email delivery failed via recipient={}; root cause: {}", email, rootCauseMessage(mailError), mailError);
-                String errorCode = smtpErrorMapper.code(mailError);
+                SmtpErrorMapper.Analysis analysis = smtpFailureLogger.log(logger, mailError, deliveryStage,
+                        email, mailFrom, emailSubject, pdfContent.length);
+                String errorCode = analysis.errorCode();
                 String safeError = "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
                 
                 workflowRef.set(Map.of(
