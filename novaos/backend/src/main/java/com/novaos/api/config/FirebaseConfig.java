@@ -1,7 +1,6 @@
 package com.novaos.api.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -17,6 +16,7 @@ import org.springframework.util.StringUtils;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
 @Configuration
@@ -29,6 +29,9 @@ public class FirebaseConfig {
 
     @Value("${firebase.service-account-json:}")
     private String serviceAccountJson;
+
+    @Value("${firebase.service-account-json-base64:}")
+    private String serviceAccountJsonBase64;
 
     @Value("${firebase.project-id}")
     private String projectId;
@@ -80,14 +83,15 @@ public class FirebaseConfig {
                 }
 
                 FirebaseApp.initializeApp(options.build());
-                logger.info("Firebase Application has been initialized successfully.");
+                logger.info("Firebase Admin initialized successfully");
             }
-        } catch (IllegalArgumentException e) {
-            logger.error("Firebase Admin SDK failed to initialize: {}", e.getMessage());
-            throw new RuntimeException("Firebase Admin SDK initialization aborted due to placeholder/mock credentials.", e);
         } catch (Exception e) {
-            logger.error("Firebase Admin SDK failed to initialize: {}", e.getMessage());
-            throw new RuntimeException("Firebase Admin SDK initialization failed. Configure a real service account and Firebase project settings; simulation is disabled.", e);
+            Throwable rootCause = rootCause(e);
+            logger.error("Firebase Admin initialization failed: type={}, message={}",
+                    rootCause.getClass().getSimpleName(), safeFailureMessage(rootCause));
+            throw new RuntimeException(
+                    "Firebase Admin SDK initialization failed. Configure the complete service-account JSON; simulation is disabled.",
+                    e);
         }
     }
 
@@ -98,27 +102,31 @@ public class FirebaseConfig {
     }
 
     private InputStream loadServiceAccountStream() throws Exception {
-        if (StringUtils.hasText(serviceAccountJson)) {
-            logger.info("Initializing Firebase credentials from FIREBASE_SERVICE_ACCOUNT_JSON");
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode credentials = objectMapper.readTree(serviceAccountJson);
-            String type = credentials.path("type").asText();
-            String jsonPrivateKey = credentials.path("private_key").asText();
-            String jsonClientEmail = credentials.path("client_email").asText();
-            if (!"service_account".equals(type)
-                    || !StringUtils.hasText(jsonPrivateKey)
-                    || !StringUtils.hasText(jsonClientEmail)) {
-                throw new IllegalArgumentException("FIREBASE_SERVICE_ACCOUNT_JSON is not a valid service-account credential.");
+        String base64Json = environmentValue(
+                "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", serviceAccountJsonBase64);
+        if (StringUtils.hasText(base64Json)) {
+            byte[] decodedJson;
+            try {
+                decodedJson = Base64.getDecoder().decode(base64Json.replaceAll("\\s", ""));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 is not valid Base64-encoded JSON.", e);
             }
-            if (jsonPrivateKey.contains("MOCK_KEY_DATA") || jsonPrivateKey.contains("placeholder")
-                    || jsonClientEmail.contains("placeholder") || jsonClientEmail.contains("novaos-placeholder")) {
-                throw new IllegalArgumentException("FIREBASE_SERVICE_ACCOUNT_JSON contains placeholder/mock data.");
-            }
-            return new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8));
+            logger.info("Firebase credentials source: FIREBASE_SERVICE_ACCOUNT_JSON_BASE64");
+            logger.info("Firebase service-account configuration present: YES");
+            return new ByteArrayInputStream(decodedJson);
+        }
+
+        String completeJson = environmentValue("FIREBASE_SERVICE_ACCOUNT_JSON", serviceAccountJson);
+        if (StringUtils.hasText(completeJson)) {
+            logger.info("Firebase credentials source: FIREBASE_SERVICE_ACCOUNT_JSON");
+            logger.info("Firebase service-account configuration present: YES");
+            return new ByteArrayInputStream(completeJson.trim().getBytes(StandardCharsets.UTF_8));
         }
 
         if (StringUtils.hasText(privateKey) && StringUtils.hasText(clientEmail)) {
-            logger.info("Initializing Firebase credentials from environment variables");
+            logger.info("Firebase credentials source: individual Firebase environment variables");
+            logger.info("Firebase service-account configuration present: YES");
             String normalizedPrivateKey = privateKey.replace("\\n", "\n");
             Map<String, String> serviceAccount = Map.of(
                     "type", "service_account",
@@ -136,8 +144,33 @@ public class FirebaseConfig {
             return new ByteArrayInputStream(json);
         }
 
-        logger.info("Initializing Firebase credentials from path: {}", configPath);
+        logger.info("Firebase credentials source: local ignored credential file");
+        logger.info("Firebase service-account configuration present: YES");
         Resource resource = resourceLoader.getResource(configPath);
         return resource.getInputStream();
+    }
+
+    private String environmentValue(String name, String configuredValue) {
+        String environmentValue = System.getenv(name);
+        return StringUtils.hasText(environmentValue) ? environmentValue : configuredValue;
+    }
+
+    private Throwable rootCause(Throwable error) {
+        Throwable result = error;
+        while (result.getCause() != null && result.getCause() != result) {
+            result = result.getCause();
+        }
+        return result;
+    }
+
+    private String safeFailureMessage(Throwable cause) {
+        String type = cause.getClass().getSimpleName();
+        if ("InvalidKeyException".equals(type) || "EOFException".equals(type)) {
+            return "The Firebase service-account private key is incomplete or cannot be decoded.";
+        }
+        if (cause instanceof IllegalArgumentException) {
+            return "The Firebase service-account environment value is invalid.";
+        }
+        return "The Firebase service-account credential could not be loaded.";
     }
 }
