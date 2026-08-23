@@ -26,7 +26,7 @@ export const HiringPipeline: React.FC<HiringPipelineProps> = ({ stages }) => {
       </div>
 
       {/* Pipeline Grid wrapper */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 relative">
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 relative">
         {stages.map((stage, idx) => {
           const isLast = idx === stages.length - 1;
           

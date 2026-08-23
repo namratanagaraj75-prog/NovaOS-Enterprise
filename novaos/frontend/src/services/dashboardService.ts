@@ -36,7 +36,9 @@ export interface AiInsight {
 export interface TrendData {
   month: string;
   candidates: number;
-  interviews: number;
+  interviews?: number;
+  approved?: number;
+  rejected?: number;
   hires: number;
 }
 
@@ -60,7 +62,10 @@ export const computePipelineFromCandidates = (candidates: Candidate[]): Pipeline
   const stages = [
     { name: 'Applied', status: 'Applied' },
     { name: 'AI Screening', status: 'AI Screening' },
-    { name: 'Manager Approval', status: 'Manager Approval' },
+    { name: 'Manager Review', status: 'Manager Review' },
+    { name: 'Finance Review', status: 'Finance Review' },
+    { name: 'Legal Review', status: 'Legal Review' },
+    { name: 'Offer Generated', status: 'Offer Generated' },
     { name: 'Offer Sent', status: 'Offer Sent' },
     { name: 'Joined', status: 'Employee Created' }
   ];
@@ -77,7 +82,7 @@ export const computePipelineFromCandidates = (candidates: Candidate[]): Pipeline
 };
 
 export const getAiInsights = (candidates: Candidate[], stats: DashboardStats | null): AiInsight[] => {
-  const pendingApprovalsCount = stats?.pendingApprovals || candidates.filter(c => c.status === 'Manager Approval').length;
+  const pendingApprovalsCount = stats?.pendingApprovals || candidates.filter(c => ['Manager Review','Finance Review','Legal Review'].includes(c.status)).length;
   const highCaliberCount = candidates.filter(c => c.matchScore >= 90).length;
 
   return [

@@ -5,12 +5,14 @@ import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.google.firebase.cloud.FirestoreClient;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
 
 @Component
+@ConditionalOnProperty(name = "novaos.demo-reset.enabled", havingValue = "true")
 public class DemoResetRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) throws Exception {

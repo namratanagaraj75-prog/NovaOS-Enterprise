@@ -4,7 +4,7 @@ export interface WorkflowStep {
   id: string;
   title: string;
   icon?: string;
-  status: 'completed' | 'running' | 'pending' | 'failed';
+  status: 'completed' | 'running' | 'pending' | 'failed' | 'terminated';
   time: string;
   description?: string;
 }

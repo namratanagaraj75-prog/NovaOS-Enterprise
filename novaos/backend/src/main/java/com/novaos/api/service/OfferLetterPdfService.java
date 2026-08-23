@@ -275,6 +275,48 @@ public class OfferLetterPdfService {
         }
     }
 
+    /** Generates the candidate-facing rejection letter. Internal rejection reasons are intentionally ignored. */
+    public byte[] generateRejection(Map<String, Object> request) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            Document doc = new Document(PageSize.A4, 60, 60, 60, 60);
+            PdfWriter writer = PdfWriter.getInstance(doc, out);
+            writer.setPageEvent(new PageNumbers());
+            doc.open();
+
+            Font brand = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, new BaseColor(15, 23, 42));
+            Font subtitle = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, new BaseColor(99, 102, 241));
+            Font title = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 17, new BaseColor(30, 41, 59));
+            Font body = FontFactory.getFont(FontFactory.HELVETICA, 11, new BaseColor(51, 65, 85));
+            Font bold = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, new BaseColor(30, 41, 59));
+
+            Paragraph logo = new Paragraph("NOVAOS", brand); logo.setAlignment(Element.ALIGN_LEFT); doc.add(logo);
+            Paragraph suite = new Paragraph("ENTERPRISE SUITE · PEOPLE & TALENT", subtitle); suite.setSpacingAfter(16); doc.add(suite);
+            doc.add(new LineSeparator(1, 100, new BaseColor(226, 232, 240), Element.ALIGN_CENTER, 0));
+
+            Paragraph heading = new Paragraph("APPLICATION UPDATE", title); heading.setAlignment(Element.ALIGN_CENTER);
+            heading.setSpacingBefore(28); heading.setSpacingAfter(8); doc.add(heading);
+            Paragraph date = new Paragraph(LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMMM yyyy")), body);
+            date.setAlignment(Element.ALIGN_CENTER); date.setSpacingAfter(34); doc.add(date);
+
+            String candidateName = Objects.toString(request.get("candidateName"), "Candidate");
+            String jobTitle = Objects.toString(request.get("jobTitle"), "the position");
+            Paragraph greeting = new Paragraph("Dear " + candidateName + ",", bold); greeting.setSpacingAfter(18); doc.add(greeting);
+            Paragraph message = new Paragraph(
+                    "Thank you for your interest in the " + jobTitle + " position and for taking the time to participate in our recruitment process.\n\n"
+                    + "After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\n"
+                    + "We sincerely appreciate your time and interest in our organization. We encourage you to consider future opportunities with us that may match your skills and experience.\n\n"
+                    + "We wish you continued success in your career.", body);
+            message.setLeading(17); message.setSpacingAfter(32); doc.add(message);
+            Paragraph closing = new Paragraph("Warm regards,\n\nNova HR Team\nNovaOS Enterprise Suite", bold); closing.setLeading(16); doc.add(closing);
+
+            doc.close();
+            return out.toByteArray();
+        } catch (Exception error) {
+            throw new IllegalStateException("Rejection PDF generation failed: " + error.getMessage(), error);
+        }
+    }
+
     private PdfPCell createInfoCard(String label, String value) {
         PdfPCell cell = new PdfPCell();
         cell.setBackgroundColor(new BaseColor(248, 250, 252)); // Slate 50

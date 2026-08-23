@@ -73,7 +73,9 @@ class ResendEmailServiceTest {
         assertThatThrownBy(() -> service("bad-key", "offers@verified.example", "Nova HR").send(request()))
                 .isInstanceOfSatisfying(EmailProviderException.class, error -> {
                     assertThat(error.getErrorCode()).isEqualTo("EMAIL_PROVIDER_AUTH_FAILED");
-                    assertThat(error.getMessage()).doesNotContain("bad key internal detail");
+                    assertThat(error.getHttpStatus()).isEqualTo(401);
+                    assertThat(error.getProviderMessage()).isEqualTo("bad key internal detail");
+                    assertThat(error.getMessage()).contains("HTTP 401");
                 });
     }
 

@@ -10,20 +10,25 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   decideHiring,
   fetchHiringPdf,
+  fetchRejectionPdf,
   getHiring,
   HiringRequest,
   sendHiringEmail,
   submitHiring,
+  rejectHiring,
+  retryRejectionEmail,
 } from "../services/hiringRequestService";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { doc, updateDoc, arrayUnion, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { formatNormalizedDate } from "../lib/dateUtils";
+import LegalPolicyReview from "../components/LegalPolicyReview";
 
 const when = (v: any) => {
   const formatted = formatNormalizedDate(v);
@@ -45,6 +50,8 @@ export default function HiringRequestDetails() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   useEffect(() => {
     if (!id || !user?.uid) return;
@@ -99,15 +106,15 @@ export default function HiringRequestDetails() {
       setBusy(false);
     }
   };
-  const openPdf = async (download = false) => {
+  const openPdf = async (documentType: "offer" | "rejection" = "offer", download = false) => {
     setBusy(true);
     try {
-      const blob = await fetchHiringPdf(id);
+      const blob = documentType === "rejection" ? await fetchRejectionPdf(id) : await fetchHiringPdf(id);
       const url = URL.createObjectURL(blob);
       if (download) {
         const a = document.createElement("a");
         a.href = url;
-        a.download = item?.pdfFileName || "offer.pdf";
+        a.download = documentType === "rejection" ? item?.rejectionPdfFileName || "rejection-letter.pdf" : item?.pdfFileName || "offer-letter.pdf";
         a.click();
       } else window.open(url, "_blank", "noopener");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -116,6 +123,26 @@ export default function HiringRequestDetails() {
     } finally {
       setBusy(false);
     }
+  };
+  const performReject = async () => {
+    if (!rejectionReason.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const updated = await rejectHiring(id, rejectionReason.trim());
+      setItem(updated); setRejectOpen(false); setRejectionReason("");
+      const sent = updated.candidateEmailNotification?.status === "SENT";
+      showToast(sent ? `Candidate rejected successfully. Rejection notification sent to ${updated.candidateEmail}.` : updated.candidateEmailNotification?.lastError || "Candidate rejected successfully, but the notification email could not be delivered.", sent ? "success" : "error");
+    } catch (e) { const msg=errorOf(e); setError(msg); showToast(msg,"error"); }
+    finally { setBusy(false); }
+  };
+  const retryRejectedEmail = async () => {
+    setBusy(true); setError("");
+    try {
+      const updated=await retryRejectionEmail(id); setItem(updated);
+      if(updated.candidateEmailNotification?.status==="SENT")showToast(`Rejection notification sent to ${updated.candidateEmail}.`,"success");
+      else {const message=updated.candidateEmailNotification?.lastError||"Email delivery failed.";setError(message);showToast(message,"error");}
+    } catch(e){const message=errorOf(e);setError(message);showToast(message,"error");}
+    finally{setBusy(false);}
   };
   if (!item)
     return (
@@ -138,6 +165,8 @@ export default function HiringRequestDetails() {
   const approvalMessage =
     "Approval recorded and workflow advanced automatically";
   const hr = role === "HR_ADMIN";
+  const canReject = !["REJECTED","APPROVALS_COMPLETED","GENERATING_OFFER","OFFER_GENERATED","EMAIL_SENDING","EMAIL_SENT","WORKFLOW_COMPLETED","APPROVED","PDF_GENERATED"].includes(item.status)
+    && ((approver && role !== "CEO") || role === "HR_ADMIN" || role === "SUPER_ADMIN");
   const passport = item.decisionPassport || {};
   const route = item.approvalRoute || [];
   const approvalComplete = [
@@ -189,6 +218,8 @@ export default function HiringRequestDetails() {
       timestamp: item.emailSentAt ? when(item.emailSentAt) : undefined,
     },
   ];
+  const rejectedStep = item.rejectedByDepartment === "HIRING_MANAGER" ? 1 : item.rejectedByDepartment === "FINANCE" ? 2 : item.rejectedByDepartment === "LEGAL" ? 3 : 0;
+  const workflowSteps = item.status === "REJECTED" ? tSteps.slice(0, rejectedStep + 1) : tSteps;
 
   // Approvals data for the governed sections
   const approvalBlocks = [
@@ -221,7 +252,7 @@ export default function HiringRequestDetails() {
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <h2 className="font-bold text-white mb-5">Workflow Timeline</h2>
         <div className="flex overflow-x-auto pb-2 gap-0">
-          {tSteps.map((step, index) => (
+          {workflowSteps.map((step, index) => (
             <div key={step.label} className="flex min-w-fit items-center">
               <div className="text-center w-32 px-1">
                 <span
@@ -251,7 +282,7 @@ export default function HiringRequestDetails() {
                   <p className="text-[9px] text-slate-600 mt-1 leading-tight">{step.timestamp}</p>
                 )}
               </div>
-              {index < tSteps.length - 1 && (
+              {index < workflowSteps.length - 1 && (
                 <span
                   className={
                     "h-px w-6 flex-shrink-0 " +
@@ -264,8 +295,45 @@ export default function HiringRequestDetails() {
         </div>
       </section>
 
+      {item.status === "REJECTED" && (
+        <section className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-6">
+          <div className="flex flex-wrap justify-between gap-4">
+            <div><h2 className="font-bold text-rose-200 flex items-center gap-2"><XCircle className="h-5 w-5"/>Workflow terminated</h2><p className="text-xs text-slate-400 mt-2">Rejected by {(item.rejectedByDepartment || "authorized reviewer").replace(/_/g," ")}. No later approval tasks will be created.</p></div>
+            <span className={`h-fit px-3 py-1 rounded-full border text-xs ${item.candidateEmailNotification?.status === 'SENT' ? 'text-emerald-300 border-emerald-500/30' : 'text-rose-300 border-rose-500/30'}`}>Rejection email: {item.candidateEmailNotification?.status || 'PENDING'}</span>
+          </div>
+          {item.candidateEmailNotification?.status === "FAILED" && (
+            <div className="mt-4"><p className="text-xs text-rose-200 mb-3">Email delivery failed.<br/><span className="text-rose-300/80">Provider message: {item.candidateEmailNotification.lastError || "Provider details unavailable."}</span></p><button disabled={busy} onClick={retryRejectedEmail} className="border border-rose-500/30 text-rose-200 px-4 py-2 rounded-xl text-xs"><RefreshCw className="inline h-4 w-4 mr-2"/>Retry Rejection Email</button></div>
+          )}
+        </section>
+      )}
+
+      {(item.offerLetterStatus && item.offerLetterStatus !== "NOT_READY" || item.rejectionLetterStatus) && (
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex flex-wrap justify-between gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-cyan-400">Documents</p>
+              <h2 className="font-bold text-white mt-1">{item.status === "REJECTED" ? "Rejection Letter" : "Offer Letter"}</h2>
+              <p className="text-xs text-slate-400 mt-2">Candidate: {item.candidateName}</p>
+              <p className="text-xs text-slate-500 mt-1">Generated: {item.status === "REJECTED" ? (item.rejectionPdfGeneratedAt ? when(item.rejectionPdfGeneratedAt) : "Pending") : (item.offerLetterGeneratedAt ? when(item.offerLetterGeneratedAt) : "Pending")}</p>
+            </div>
+            <div className="text-right">
+              <span className={`inline-block px-3 py-1 rounded-full border text-xs ${(item.status === "REJECTED" ? item.rejectionLetterStatus : item.offerLetterStatus) === "GENERATED" ? "text-emerald-300 border-emerald-500/30" : (item.status === "REJECTED" ? item.rejectionLetterStatus : item.offerLetterStatus) === "FAILED" ? "text-rose-300 border-rose-500/30" : "text-amber-300 border-amber-500/30"}`}>{item.status === "REJECTED" ? item.rejectionLetterStatus : item.offerLetterStatus}</span>
+              <p className="text-xs text-slate-400 mt-2">Email: {item.status === "REJECTED" ? item.candidateEmailNotification?.status || "PENDING" : item.emailStatus || "PENDING"}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3 mt-5">
+            {(item.status === "REJECTED" ? item.rejectionLetterStatus : item.offerLetterStatus) === "GENERATED" && <>
+              <button disabled={busy} onClick={()=>openPdf(item.status === "REJECTED" ? "rejection" : "offer")} className="border border-cyan-500/30 text-cyan-300 px-4 py-2.5 rounded-xl text-xs font-bold">Preview {item.status === "REJECTED" ? "Rejection" : "Offer"} Letter</button>
+              <button disabled={busy} onClick={()=>openPdf(item.status === "REJECTED" ? "rejection" : "offer",true)} className="border border-slate-700 px-4 py-2.5 rounded-xl text-xs"><Download className="inline h-4 w-4 mr-2"/>Download PDF</button>
+            </>}
+            {item.status === "REJECTED" && item.candidateEmailNotification?.status === "FAILED" && <button disabled={busy} onClick={retryRejectedEmail} className="border border-rose-500/30 text-rose-300 px-4 py-2.5 rounded-xl text-xs"><RefreshCw className="inline h-4 w-4 mr-2"/>Retry Email</button>}
+            {item.status !== "REJECTED" && hr && item.emailStatus === "FAILED" && <button disabled={busy} onClick={()=>run(()=>sendHiringEmail(id,true),"Offer letter email retry processed")} className="border border-violet-500/30 text-violet-300 px-4 py-2.5 rounded-xl text-xs"><RefreshCw className="inline h-4 w-4 mr-2"/>Retry Email</button>}
+          </div>
+        </section>
+      )}
+
       {/* Email Delivery Status Section */}
-      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      {item.status !== "REJECTED" && <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
           <div>
             <h2 className="font-bold text-white flex items-center gap-2">
@@ -328,7 +396,7 @@ export default function HiringRequestDetails() {
             </div>
           )}
         </div>
-      </section>
+      </section>}
 
       {/* Governed Approval Decisions */}
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -453,6 +521,7 @@ export default function HiringRequestDetails() {
           </div>
         )}
       </section>
+      {role === "LEGAL" && approver && <LegalPolicyReview requestId={id} onDecision={setItem}/>}
       <div className="flex flex-wrap gap-3">
         {hr && item.status === "DRAFT" && (
           <button
@@ -466,7 +535,7 @@ export default function HiringRequestDetails() {
             Submit for approval
           </button>
         )}
-        {approver && (
+        {approver && role !== "LEGAL" && (
           <>
             <button
               disabled={busy}
@@ -488,19 +557,6 @@ export default function HiringRequestDetails() {
               disabled={!reason || busy}
               onClick={() =>
                 run(
-                  () => decideHiring(id, "REJECT", reason),
-                  "Request rejected",
-                )
-              }
-              className="border border-rose-500/30 text-rose-300 px-4 py-2.5 rounded-xl text-xs"
-            >
-              <XCircle className="inline h-4 w-4 mr-2" />
-              Reject
-            </button>
-            <button
-              disabled={!reason || busy}
-              onClick={() =>
-                run(
                   () => decideHiring(id, "REQUEST_CHANGES", reason),
                   "Changes requested",
                 )
@@ -511,40 +567,21 @@ export default function HiringRequestDetails() {
             </button>
           </>
         )}
-        {item.pdfUrl && (
-          <>
-            <button
-              disabled={busy}
-              onClick={() => openPdf()}
-              className="border border-slate-700 px-4 py-2.5 rounded-xl text-xs"
-            >
-              Preview PDF
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => openPdf(true)}
-              className="border border-slate-700 px-4 py-2.5 rounded-xl text-xs"
-            >
-              <Download className="inline h-4 w-4 mr-2" />
-              Download
-            </button>
-          </>
-        )}
-        {hr && item.emailStatus === "FAILED" && !item.emailSentAt && (
-          <button
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm(`Are you sure you want to resend the offer letter to ${item.candidateEmail}?`)) {
-                run(() => sendHiringEmail(id, true), "Offer letter resent successfully");
-              }
-            }}
-            className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-colors"
-          >
-            <Mail className="inline h-4 w-4 mr-2" />
-            Resend Offer Letter
+        {canReject && role !== "LEGAL" && (
+          <button disabled={busy} onClick={()=>setRejectOpen(true)} className="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2.5 rounded-xl text-xs font-bold">
+            <XCircle className="inline h-4 w-4 mr-2"/>Reject Candidate
           </button>
         )}
       </div>
+      <AnimatePresence>
+        {rejectOpen && <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={()=>!busy&&setRejectOpen(false)}>
+          <motion.div initial={{scale:.96,y:12}} animate={{scale:1,y:0}} exit={{scale:.96,y:12}} onMouseDown={e=>e.stopPropagation()} className="w-full max-w-lg bg-slate-900 border border-rose-500/30 rounded-2xl p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-white">Reject Candidate</h2><p className="text-sm text-slate-400 mt-2">You are about to reject <strong className="text-white">{item.candidateName}</strong> for <strong className="text-white">{item.jobTitle}</strong>. This terminates the approval workflow.</p>
+            <label className="block text-xs font-bold text-slate-300 mt-5 mb-2">Internal rejection reason</label><textarea autoFocus rows={5} value={rejectionReason} onChange={e=>setRejectionReason(e.target.value)} placeholder="Enter the reason for rejecting this candidate..." className="w-full bg-slate-950 border border-slate-700 focus:border-rose-500 rounded-xl p-3 text-sm text-white outline-none"/><p className="text-[10px] text-slate-500 mt-2">This internal reason is never included in the candidate email.</p>
+            <div className="flex justify-end gap-3 mt-6"><button disabled={busy} onClick={()=>setRejectOpen(false)} className="border border-slate-700 text-slate-300 px-4 py-2.5 rounded-xl text-xs">Cancel</button><button disabled={busy||!rejectionReason.trim()} onClick={performReject} className="bg-rose-600 disabled:opacity-40 text-white px-4 py-2.5 rounded-xl text-xs font-bold">{busy?<><Loader2 className="inline h-4 w-4 animate-spin mr-2"/>Rejecting candidate...</>:"Reject Candidate"}</button></div>
+          </motion.div>
+        </motion.div>}
+      </AnimatePresence>
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
         <h2 className="font-bold text-white">Activity History</h2>
         <div className="mt-5 space-y-4">

@@ -88,7 +88,7 @@ export const CandidateList: React.FC<CandidateListProps> = ({
 
         {filtered.length === 0 && (
           <div className="text-center py-8 text-[11px] text-slate-500 font-mono">
-            NO MATCHES FOUND
+            {candidates.length === 0 ? 'NO HIRING REQUESTS AVAILABLE' : 'NO CANDIDATES MATCH THIS SEARCH'}
           </div>
         )}
       </div>

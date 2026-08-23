@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Terminal,
@@ -25,6 +25,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { logout, user } = useAuth();
   const { backendOnline, hiringRequests } = useAppContext();
 
@@ -76,7 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
           ],
         },
         {
-          name: "AI Command Center",
+          name: "Nova Cortex",
           path: "/chat",
           icon: Terminal,
           roles: [
@@ -166,6 +167,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
           icon: Shield,
           roles: ["SUPER_ADMIN"],
         },
+        {
+          name: "Legal Policies",
+          path: "/admin/legal-policies",
+          icon: Scale,
+          roles: ["SUPER_ADMIN"],
+        },
       ],
     },
   ];
@@ -218,14 +225,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
                   <NavLink
                     key={item.name}
                     to={item.path}
-                    className={({ isActive }) => `
+                    end
+                    className={({ isActive }) => {
+                      const active = isActive || (item.path === '/hiring-requests' && (pathname.startsWith('/hiring-requests/') || pathname.startsWith('/passports/')));
+                      return `
                       flex items-center justify-between px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 group
                       ${
-                        isActive
+                        active
                           ? "bg-[#6D5DF6]/15 text-white border border-[#6D5DF6]/30"
                           : "text-gray-400 hover:text-white hover:bg-white/5 border border-transparent"
                       }
-                    `}
+                    `}}
                   >
                     <div className="flex items-center gap-3">
                       <item.icon className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:scale-110" />

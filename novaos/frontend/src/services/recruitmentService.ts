@@ -8,7 +8,10 @@ export interface Candidate {
   status:
     | "Applied"
     | "AI Screening"
-    | "Manager Approval"
+    | "Manager Review"
+    | "Finance Review"
+    | "Legal Review"
+    | "Offer Generated"
     | "Offer Sent"
     | "Employee Created"
     | "Rejected";
@@ -21,6 +24,18 @@ export interface Candidate {
   weaknesses: string[];
   recommendedSalary: string;
   recommendedInterviewer: string;
+  department?: string;
+  riskLevel?: string;
+  appliedAt?: any;
+  currentStatus?: string;
+  annualPackageLPA?: number | null;
+  annualSalaryAmount?: number | null;
+  joiningDate?: string;
+  location?: string;
+  employmentType?: string;
+  experience?: string;
+  skills?: string[];
+  hiringRequest?: any;
 }
 
 const API_BASE = "";
@@ -42,6 +57,18 @@ const normalizeCandidate = (c: any): Candidate => {
     weaknesses: c.weaknesses || [],
     recommendedSalary: c.recommendedSalary || c.ctc || "No Data Yet",
     recommendedInterviewer: c.recommendedInterviewer || "No Data Yet",
+    department: c.department || "",
+    riskLevel: c.riskLevel || "",
+    appliedAt: c.appliedAt || c.createdAt,
+    currentStatus: c.currentStatus || c.status,
+    annualPackageLPA: c.annualPackageLPA ?? null,
+    annualSalaryAmount: c.annualSalaryAmount ?? null,
+    joiningDate: c.joiningDate || "",
+    location: c.location || "",
+    employmentType: c.employmentType || "",
+    experience: c.experience || "",
+    skills: Array.isArray(c.skills) ? c.skills : [],
+    hiringRequest: c.hiringRequest,
   };
 };
 
@@ -60,7 +87,10 @@ export const approveCandidate = async (
   const stages: Candidate["status"][] = [
     "Applied",
     "AI Screening",
-    "Manager Approval",
+    "Manager Review",
+    "Finance Review",
+    "Legal Review",
+    "Offer Generated",
     "Offer Sent",
     "Employee Created",
   ];
@@ -132,4 +162,3 @@ export default {
   addCandidate,
   sendOfferLetter,
 };
-

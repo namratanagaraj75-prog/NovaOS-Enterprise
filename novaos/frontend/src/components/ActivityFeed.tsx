@@ -5,9 +5,11 @@ import { ActivityItem } from '../services/dashboardService';
 
 interface ActivityFeedProps {
   activities: ActivityItem[];
+  title?: string;
+  description?: string;
 }
 
-export const ActivityFeed: React.FC<ActivityFeedProps> = ({ activities }) => {
+export const ActivityFeed: React.FC<ActivityFeedProps> = ({ activities, title = 'Recent AI Activity', description = 'Chronological logs of actions performed by Gemini agents.' }) => {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
@@ -17,8 +19,8 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({ activities }) => {
     >
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-lg font-bold text-slate-200">Recent AI Activity</h3>
-          <p className="text-xs text-slate-400">Chronological logs of actions performed by Gemini agents.</p>
+          <h3 className="text-lg font-bold text-slate-200">{title}</h3>
+          <p className="text-xs text-slate-400">{description}</p>
         </div>
         <Terminal className="h-4.5 w-4.5 text-slate-400" />
       </div>
@@ -27,8 +29,8 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({ activities }) => {
         {activities.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-slate-500 font-sans h-full">
             <Terminal className="h-10 w-10 mb-3 text-slate-700 animate-pulse" />
-            <p className="text-xs font-semibold">No recent AI activities</p>
-            <p className="text-[10px] text-slate-500 mt-1">Live agent logs will appear here</p>
+            <p className="text-xs font-semibold">No recent hiring activity</p>
+            <p className="text-[10px] text-slate-500 mt-1">Candidate workflow events will appear here</p>
           </div>
         ) : (
           activities.map((activity, idx) => {
@@ -68,6 +70,9 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({ activities }) => {
                   </p>
                   <span className="text-[9px] font-semibold text-slate-400 font-mono block mt-1.5 uppercase">
                     {activity.position}
+                  </span>
+                  <span className={`inline-block mt-2 text-[8px] font-bold font-mono px-2 py-0.5 rounded border ${activity.status === 'warning' ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' : 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'}`}>
+                    {activity.status === 'warning' ? 'REJECTED' : activity.status === 'completed' ? 'COMPLETED' : 'IN REVIEW'}
                   </span>
                 </div>
 

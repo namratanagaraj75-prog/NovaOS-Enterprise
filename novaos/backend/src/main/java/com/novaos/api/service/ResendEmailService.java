@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import jakarta.annotation.PostConstruct;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -58,6 +59,13 @@ public class ResendEmailService {
 
     public String providerId() { return "RESEND_API"; }
 
+    @PostConstruct
+    void reportConfiguration() {
+        logger.info("Resend API Key configured: {}", StringUtils.hasText(apiKey) ? "YES" : "NO");
+        logger.info("Resend From Email configured: {}", StringUtils.hasText(from) ? "YES" : "NO");
+        logger.info("Resend From Name: {}", StringUtils.hasText(fromName) ? fromName : "NOT CONFIGURED");
+    }
+
     public EmailDeliveryReceipt send(EmailDeliveryRequest request) {
         validateConfiguration();
         try {
@@ -86,7 +94,7 @@ public class ResendEmailService {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8));
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300)
-                throw responseFailure(response.statusCode(), response.body());
+                throw responseFailure(response.statusCode(), response.body(), request, true);
             JsonNode responseBody = objectMapper.readTree(response.body());
             String id = responseBody.path("id").asText("");
             if (!StringUtils.hasText(id))
@@ -122,6 +130,14 @@ public class ResendEmailService {
         return send(request).messageId();
     }
 
+    /** Sends a plain-text transactional email with provider-side idempotency. */
+    public EmailDeliveryReceipt sendPlainText(String idempotencyKey, String toEmail,
+                                               String subject, String textBody) {
+        EmailDeliveryRequest request = new EmailDeliveryRequest(
+                idempotencyKey, toEmail, subject, textBody, "message.txt", new byte[0]);
+        return sendWithoutAttachment(request);
+    }
+
     private EmailDeliveryReceipt sendWithoutAttachment(EmailDeliveryRequest request) {
         validateConfiguration();
         try {
@@ -136,7 +152,7 @@ public class ResendEmailService {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8)).build();
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300)
-                throw responseFailure(response.statusCode(), response.body());
+                throw responseFailure(response.statusCode(), response.body(), request, false);
             return new EmailDeliveryReceipt(providerId(), objectMapper.readTree(response.body()).path("id").asText(""));
         } catch (EmailProviderException error) {
             throw error;
@@ -145,13 +161,16 @@ public class ResendEmailService {
         }
     }
 
-    private EmailProviderException responseFailure(int status, String responseBody) {
-        String providerType = "unknown";
-        try { providerType = objectMapper.readTree(responseBody).path("name").asText("unknown"); }
-        catch (Exception ignored) { }
-        logger.error("Resend API rejected email: httpStatus={}, providerErrorType={}", status, providerType);
+    private EmailProviderException responseFailure(int status, String responseBody,
+                                                   EmailDeliveryRequest request, boolean attachment) {
+        String providerType = "unknown"; String providerMessage = "The email provider rejected the delivery request.";
+        try { JsonNode body=objectMapper.readTree(responseBody);providerType=body.path("name").asText("unknown");providerMessage=safe(body.path("message").asText(providerMessage)); }
+        catch (Exception ignored) { providerMessage=safe(responseBody); }
+        logger.error("Resend email failed: type={}, recipient={}, sender={}, httpStatus={}, providerErrorType={}, providerMessage={}, attachment={}",
+                emailType(request), request.recipient(), from, status, providerType, providerMessage, attachment);
         String code = status == 401 || status == 403 ? "EMAIL_PROVIDER_AUTH_FAILED" : "EMAIL_PROVIDER_REJECTED";
-        return failure(code, "The email provider rejected the delivery request.", null);
+        String safeMessage = "Resend rejected the email (HTTP " + status + "): " + providerMessage;
+        return new EmailProviderException(providerId(), code, status, providerMessage, safeMessage, null);
     }
 
     private void validateConfiguration() {
@@ -168,6 +187,14 @@ public class ResendEmailService {
     private EmailProviderException failure(String code, String message, Throwable cause) {
         return new EmailProviderException(providerId(), code, message, cause);
     }
+
+    private String emailType(EmailDeliveryRequest request) {
+        String key=request.idempotencyKey().toLowerCase(); String subject=request.subject().toLowerCase();
+        if(key.startsWith("rejection-")||subject.contains("application update"))return "REJECTION";
+        if(key.startsWith("offer-")||subject.contains("offer letter"))return "OFFER";
+        return "OTHER";
+    }
+    private String safe(String value) { String cleaned=StringUtils.hasText(value)?value.replaceAll("[\\r\\n\\t]+"," ").replaceAll("re_[A-Za-z0-9_\\-]+","[REDACTED]").trim():"Provider error unavailable";if(StringUtils.hasText(apiKey))cleaned=cleaned.replace(apiKey,"[REDACTED]");return cleaned.length()>500?cleaned.substring(0,500):cleaned; }
 
     private String trim(String value) { return value == null ? "" : value.trim(); }
 }

@@ -4,6 +4,7 @@ import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.*;
 import com.google.firebase.cloud.FirestoreClient;
 import com.novaos.api.dto.HiringRequestDtos.*;
+import com.novaos.api.dto.CandidateRejectionDtos.RejectCandidateRequest;
 import com.novaos.api.exception.EmailProviderException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -27,13 +28,16 @@ public class HiringRequestService {
     private final OfferLetterPdfService pdf;
     private final String fromName;
     private final ResendEmailService resendEmailService;
+    private final CandidateRejectionService candidateRejectionService;
 
     public HiringRequestService(HiringCommandParser parser, HiringWorkflowRules rules, HiringPolicyEngine policyEngine, OfferLetterPdfService pdf,
             @Value("${nova.resend.from-name:Nova HR}") String fromName,
-            ResendEmailService resendEmailService) {
+            ResendEmailService resendEmailService,
+            CandidateRejectionService candidateRejectionService) {
         this.parser=parser; this.rules=rules; this.policyEngine=policyEngine; this.pdf=pdf;
         this.fromName=trim(fromName);
         this.resendEmailService = resendEmailService;
+        this.candidateRejectionService = candidateRejectionService;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -123,12 +127,15 @@ public class HiringRequestService {
         requireAny(auth,"HIRING_MANAGER","FINANCE","LEGAL","CEO"); String action=request==null?"":String.valueOf(request.action()).toUpperCase();
         if(!List.of("APPROVE","REJECT","REQUEST_CHANGES").contains(action)) throw bad("Action must be APPROVE, REJECT, or REQUEST_CHANGES.");
         if(!"APPROVE".equals(action) && !StringUtils.hasText(request.reason())) throw bad("A reason is required.");
+        if ("REJECT".equals(action)) {
+            return candidateRejectionService.reject(id, new RejectCandidateRequest(request.reason(), null), auth);
+        }
         try { Firestore db=db(); DocumentSnapshot d=requireDocument(db,id); Map<String,Object> actor=actor(db,auth);
             String approverRole=role(auth);
             logger.info("Logged-in approver role={} uid={}", approverRole, actor.get("uid"));
             requireCurrentApprover(d,approverRole,actor);
             if(Objects.equals(d.getString("createdBy"),actor.get("uid"))) throw forbidden("Users cannot approve their own request.");
-            if (Set.of("FINANCE", "LEGAL").contains(approverRole)) {
+            if ("FINANCE".equals(approverRole)) {
                 CandidateInput candidate = candidateFromDocument(d);
                 Map<String,Object> manager = findManager(db, candidate.hiringManagerName());
                 Map<String,Object> passport = policyEngine.evaluate(db, candidate, id, manager);
@@ -162,6 +169,7 @@ public class HiringRequestService {
             }
             if(transition.finalApproval()) {
                 events.add(activityAt("APPROVALS_COMPLETED",actor,"All policy-required approvals are complete.",now,id));
+                updates.put("finalApprovedAt", now);
             }
             updates.put("activityHistory",FieldValue.arrayUnion(events.toArray()));
             if("APPROVE".equals(action)) {
@@ -190,7 +198,7 @@ public class HiringRequestService {
                 String nextState = approverRole.equals("HIRING_MANAGER") ? "LEGAL_PENDING" 
                                  : approverRole.equals("LEGAL") ? "FINANCE_PENDING" 
                                  : "OFFER_GENERATING";
-                workflowUpdates.put("state", "APPROVE".equals(action) ? (transition.finalApproval() ? "OFFER_GENERATED" : nextState) : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
+                workflowUpdates.put("state", "APPROVE".equals(action) ? (transition.finalApproval() ? "WORKFLOW_COMPLETED" : nextState) : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
                 workflowUpdates.put("lastCompletedState", "APPROVE".equals(action) ? approvedState : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
                 workflowUpdates.put("updatedAt", java.time.Instant.now().toString());
                 batch.update(workflowRef, workflowUpdates);
@@ -261,24 +269,25 @@ public class HiringRequestService {
         try { DocumentSnapshot d=requireDocument(db(),id); authorizeRead(d,auth); Map<String,Object> out=new HashMap<>(d.getData());out.put("id",d.getId());return out; }
         catch(ResponseStatusException e){throw e;} catch(Exception e){throw server("Hiring request read failed",e);} }
 
-    private String buildEmailBody(String candidateName) {
+    private String buildEmailBody(String candidateName, String jobTitle) {
         return "Dear " + candidateName + ",\n\n" +
-               "Congratulations! Your hiring request has completed all required approvals.\n\n" +
+               "Congratulations!\n\n" +
+               "We are pleased to inform you that your application for the " + jobTitle + " position has successfully completed our approval process.\n\n" +
                "Please find your official offer letter attached to this email.\n\n" +
-               "Regards,\n" +
-               "NovaOS HR Team";
+               "We are excited to welcome you to the team. Kindly review the attached document for your employment details and next steps.\n\n" +
+               "Warm regards,\nNova HR Team";
     }
 
     private void generatePdf(String id, Map<String,Object> actor) throws Exception { generatePdf(id,actor,false); }
     private void generatePdf(String id, Map<String,Object> actor, boolean force) throws Exception { Firestore db=db(); DocumentReference ref=db.collection("hiringRequests").document(id); DocumentSnapshot d=requireDocument(db,id);
         if(!force&&StringUtils.hasText(d.getString("pdfFileName")))return;
-        if(!force&&!List.of("APPROVALS_COMPLETED","LEGAL_APPROVED").contains(d.getString("status")))throw conflict("All policy-required approvals are required before offer generation.");
+        if(!force&&!List.of("APPROVED","APPROVALS_COMPLETED","LEGAL_APPROVED").contains(d.getString("status")))throw conflict("All policy-required approvals are required before offer generation.");
         Timestamp started=Timestamp.now(); ref.update(Map.of("status","GENERATING_OFFER","offerLetterStatus","GENERATING","updatedAt",FieldValue.serverTimestamp(),
                 "activityHistory",FieldValue.arrayUnion(activityAt("OFFER_GENERATION_STARTED",systemActor(),"Backend offer generation started after final approval.",started,id)))).get();
         try{
             d=requireDocument(db,id); Map<String,Object> values=new HashMap<>(d.getData()); values.put("offerReferenceId","NOVA-"+id.substring(0,8).toUpperCase());
             values.put("approvalSummary",approvalSummary(d));
-            String safe=sanitizeFileName(d.getString("candidateName")); String filename="Offer_Letter_"+safe+"_"+id+".pdf";
+            String safe=sanitizeFileName(d.getString("candidateName")); String filename="NovaOS_Offer_Letter_"+safe+".pdf";
             Timestamp now=Timestamp.now();
             Map<String,Object> updates=new HashMap<>(); updates.put("status","OFFER_GENERATED");updates.put("currentApproverRole",FieldValue.delete());updates.put("pdfUrl","/api/hiring/requests/"+id+"/pdf");
             updates.put("pdfFileName",filename);updates.put("pdfGeneratedAt",now);updates.put("offerReferenceId",values.get("offerReferenceId"));
@@ -299,13 +308,15 @@ public class HiringRequestService {
             
             WriteBatch batch=db.batch();batch.update(ref,updates);batch.set(db.collection("documents").document(id+"-offer"),document);
             batch.create(db.collection("auditLogs").document(id+"-OFFER_GENERATED-"+UUID.randomUUID()),audit(id,"OFFER_GENERATED",actor,"Offer PDF generated."));batch.commit().get();
-        }catch(Exception error){ref.update(Map.of("status","APPROVALS_COMPLETED","offerLetterStatus","FAILED","offerLetterFailureReason",safeMessage(error),"updatedAt",FieldValue.serverTimestamp(),
+        }catch(Exception error){ref.update(Map.of("status","APPROVED","offerLetterStatus","FAILED","offerLetterFailureReason",safeMessage(error),"updatedAt",FieldValue.serverTimestamp(),
                 "activityHistory",FieldValue.arrayUnion(activity("OFFER_GENERATION_FAILED",systemActor(),safeMessage(error),id)))).get();throw error;}
     }
 
-    private void generateOfferAndSend(String id)throws Exception{
-        Map<String,Object> system=systemActor(); generatePdf(id,system,false);
-        try{deliverEmail(id,system,false);}catch(Exception e){logger.error("Automatic offer delivery failed for request {}: {}",id,e.getMessage());}
+    private void generateOfferAndSend(String id){
+        Map<String,Object> system=systemActor();
+        try { generatePdf(id,system,false); }
+        catch(Exception e) { logger.error("Automatic offer generation failed for request {}; approval remains saved: {}",id,e.getMessage()); return; }
+        try{deliverEmail(id,system,false);}catch(Exception e){logger.error("Automatic offer delivery failed for request {}; generated PDF remains available: {}",id,e.getMessage());}
     }
 
     private void deliverEmail(String id,Map<String,Object> actor,boolean isResend)throws Exception{
@@ -316,11 +327,11 @@ public class HiringRequestService {
             throw new com.novaos.api.exception.EmailDeliveryException(
                     "The offer letter was generated, but email delivery failed.", "INVALID_RECIPIENT", null);
         String candidateName = preview.getString("candidateName");
-        String filename = "Offer_Letter_" + sanitizeFileName(candidateName) + "_" + id + ".pdf";
+        String filename = "NovaOS_Offer_Letter_" + sanitizeFileName(candidateName) + ".pdf";
         Map<String,Object> values=new HashMap<>(preview.getData());
         values.put("offerReferenceId","NOVA-"+id.substring(0,Math.min(8,id.length())).toUpperCase());
         values.put("approvalSummary",approvalSummary(preview));
-        final String emailSubject = "Offer of Employment | Nova OS";
+        final String emailSubject = "Congratulations \u2013 Offer Letter | Nova HR";
         byte[] pdfBytes;
         try {
             pdfBytes = pdf.generate(values);
@@ -365,7 +376,7 @@ public class HiringRequestService {
         try{
             long attemptNumber = Optional.ofNullable(d.getLong("emailAttemptCount")).orElse(0L) + 1;
             EmailDeliveryReceipt receipt = resendEmailService.send(new EmailDeliveryRequest(
-                    id + "-" + attemptNumber, email, emailSubject, buildEmailBody(candidateName), filename, pdfBytes));
+                    "offer-" + id, email, emailSubject, buildEmailBody(candidateName, Objects.toString(preview.getString("jobTitle"), "position")), filename, pdfBytes));
             String messageId = receipt.messageId();
             deliveryProvider = receipt.provider();
             Timestamp sent=Timestamp.now();
@@ -380,7 +391,7 @@ public class HiringRequestService {
             successUpdates.put("emailMessageId", messageId);
             successUpdates.put("emailProvider", deliveryProvider);
             successUpdates.put("emailRecipient", email);
-            successUpdates.put("emailSubject", "Offer of Employment | Nova OS");
+            successUpdates.put("emailSubject", emailSubject);
             successUpdates.put("emailErrorCode", FieldValue.delete());
             successUpdates.put("emailFailureReason", FieldValue.delete());
             successUpdates.put("emailErrorMessage", FieldValue.delete());
@@ -413,7 +424,9 @@ public class HiringRequestService {
                 logger.error("Resend delivery failed for request {}", id, error);
                 errorCode = "EMAIL_DELIVERY_FAILED";
             }
-            String errorMsg = "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
+            String errorMsg = error instanceof EmailProviderException providerError
+                    ? providerError.getMessage()
+                    : "Email delivery failed. Error code: " + errorCode + ". Please retry or contact the administrator.";
             
             String failureAction = isResend ? "EMAIL_RESEND_FAILED" : (isRetry ? "EMAIL_RETRY_FAILED" : "EMAIL_FAILED");
             String failureDetails = isResend ? "Manual email resend failed. "+errorMsg : (isRetry ? "Email retry failed; PDF generation metadata preserved. "+errorMsg : "Email failed; PDF generation metadata preserved for retry. "+errorMsg);
@@ -425,7 +438,7 @@ public class HiringRequestService {
             failureUpdates.put("emailErrorMessage", errorMsg);
             failureUpdates.put("emailProvider", deliveryProvider);
             failureUpdates.put("emailRecipient", email);
-            failureUpdates.put("emailSubject", "Offer of Employment | Nova OS");
+            failureUpdates.put("emailSubject", emailSubject);
             failureUpdates.put("lastEmailAttemptAt", failed);
             failureUpdates.put("updatedAt", FieldValue.serverTimestamp());
             failureUpdates.put("readBy", FieldValue.delete());
@@ -504,7 +517,7 @@ public class HiringRequestService {
             int next=current+1;String nextRole=next<route.size()?route.get(next):null;boolean complete=nextRole==null;
             String actionName="HIRING_MANAGER".equals(approverRole)?"MANAGER_APPROVED":approverRole+"_APPROVED";
             String details=("HIRING_MANAGER".equals(approverRole)?"Hiring manager":title(approverRole))+" approved the request."+(complete?" All required approvals are complete.":" Routed to "+title(nextRole)+".");
-            return new ApprovalTransition(complete?"APPROVALS_COMPLETED":pendingStatus(nextRole),actionName,details,nextRole,next,complete);
+            return new ApprovalTransition(complete?"APPROVED":pendingStatus(nextRole),actionName,details,nextRole,next,complete);
         }
         String suffix="REJECT".equals(action)?"REJECTED":"CHANGES_REQUESTED";
         String next="REJECT".equals(action)?"REJECTED":"CHANGES_REQUESTED";

@@ -9,12 +9,13 @@ import { WorkflowState, WorkflowStep } from '../services/workflowService';
 import { HiringRequest } from '../services/hiringRequestService';
 
 export type LoadingKey = 'app' | 'dashboard' | 'commandCenter' | 'pipeline' | 'workflow' | 'intelligence';
-export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error' }
+export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error'; requestId?: string; actorName?: string }
 export interface AppNotification { id: string; message: string; sub?: string; createdAt: string; type: AppActivity['type']; read: boolean; requestId?: string }
 export interface KPIs { totalCandidates: number; pendingApprovals: number; offersSent: number; employeesCreated: number; executionsToday: number }
 export interface AppState {
   currentUser: ReturnType<typeof useAuth>['user'];
   candidates: Candidate[];
+  legacyCandidates: Candidate[];
   employees: Candidate[];
   workflows: Record<string, WorkflowState>;
   hiringRequests: HiringRequest[];
@@ -47,6 +48,7 @@ type Action =
 const initialState: AppState = {
   currentUser: null,
   candidates: [],
+  legacyCandidates: [],
   employees: [],
   workflows: {},
   hiringRequests: [],
@@ -76,7 +78,54 @@ const candidateFrom = (id: string, data: any): Candidate => ({
   weaknesses: Array.isArray(data.weaknesses) ? data.weaknesses.map(String) : [],
   recommendedSalary: data.annualCtc ? 'INR ' + Number(data.annualCtc).toLocaleString('en-IN') : String(data.recommendedSalary || ''),
   recommendedInterviewer: String(data.manager || data.recommendedInterviewer || ''),
+  department: String(data.department || ''), riskLevel: String(data.riskLevel || ''),
+  appliedAt: data.appliedAt || data.createdAt, currentStatus: String(data.currentStatus || data.status || 'Applied'),
+  annualPackageLPA: data.annualPackageLPA ?? null, annualSalaryAmount: data.annualSalaryAmount ?? null,
+  joiningDate: String(data.joiningDate || ''), location: String(data.location || ''),
+  employmentType: String(data.employmentType || ''), experience: String(data.experience || ''),
+  skills: Array.isArray(data.skills) ? data.skills.map(String) : [],
 });
+
+const pipelineStatus = (request: HiringRequest): Candidate['status'] => {
+  const status = String(request.status || 'DRAFT');
+  if (status === 'REJECTED' || request.rejected) return 'Rejected';
+  if (status === 'EMPLOYEE_CREATED') return 'Employee Created';
+  if (['EMAIL_SENT', 'WORKFLOW_COMPLETED'].includes(status) || request.emailStatus === 'SENT') return 'Offer Sent';
+  if (['APPROVED', 'APPROVALS_COMPLETED', 'GENERATING_OFFER', 'OFFER_GENERATED', 'PDF_GENERATED', 'EMAIL_SENDING', 'EMAIL_FAILED'].includes(status)
+      || request.offerLetterStatus === 'GENERATED' || request.pdfGeneratedAt) return 'Offer Generated';
+  if (['PENDING_LEGAL_APPROVAL', 'PENDING_CEO_APPROVAL', 'LEGAL_APPROVED', 'CEO_APPROVED'].includes(status)) return 'Legal Review';
+  if (['PENDING_FINANCE_APPROVAL', 'FINANCE_APPROVED'].includes(status)) return 'Finance Review';
+  if (['PENDING_MANAGER_APPROVAL', 'MANAGER_APPROVED'].includes(status)) return 'Manager Review';
+  if (status === 'AI_SCREENING') return 'AI Screening';
+  return 'Applied';
+};
+
+const candidateFromHiringRequest = (request: HiringRequest): Candidate => {
+  const stored = request as any;
+  const score = Number(stored.aiMatchScore ?? stored.matchScore ?? stored.score ?? 0);
+  return {
+    id: request.id, name: request.candidateName || 'Unnamed candidate', role: request.jobTitle || 'Role not recorded',
+    email: request.candidateEmail || '', status: pipelineStatus(request), matchScore: score, score,
+    source: 'Hiring Request', aiSummary: stored.aiSummary || stored.candidateSummary || '',
+    resumeSummary: stored.resumeSummary || stored.profileInformation || '',
+    strengths: Array.isArray(stored.strengths) ? stored.strengths.map(String) : [],
+    weaknesses: Array.isArray(stored.concerns) ? stored.concerns.map(String) : Array.isArray(stored.weaknesses) ? stored.weaknesses.map(String) : [],
+    recommendedSalary: request.annualSalaryAmount ? 'INR ' + Number(request.annualSalaryAmount).toLocaleString('en-IN') : request.annualPackageLPA ? request.annualPackageLPA + ' LPA' : '',
+    recommendedInterviewer: request.hiringManagerName || '', department: request.department || '',
+    riskLevel: request.riskLevel || '', appliedAt: request.createdAt, currentStatus: request.status,
+    annualPackageLPA: request.annualPackageLPA, annualSalaryAmount: request.annualSalaryAmount,
+    joiningDate: request.joiningDate || '', location: request.location || '', employmentType: request.employmentType || '',
+    experience: String(stored.experience || stored.yearsOfExperience || ''),
+    skills: Array.isArray(stored.skills) ? stored.skills.map(String) : [], hiringRequest: request,
+  };
+};
+
+const mergeCandidates = (legacy: Candidate[], requests: HiringRequest[]) => {
+  const requestCandidates = requests.map(candidateFromHiringRequest);
+  const requestEmails = new Set(requestCandidates.map(candidate => candidate.email.toLowerCase()).filter(Boolean));
+  return [...requestCandidates, ...legacy.filter(candidate => !requestCandidates.some(item => item.id === candidate.id)
+    && (!candidate.email || !requestEmails.has(candidate.email.toLowerCase())))];
+};
 
 const stageOrder = ['APPLIED', 'POLICY_REVIEWED', 'MANAGER_PENDING', 'MANAGER_APPROVED', 'LEGAL_PENDING',
   'LEGAL_APPROVED', 'FINANCE_PENDING', 'FINANCE_APPROVED', 'OFFER_GENERATING', 'OFFER_GENERATED',
@@ -114,6 +163,42 @@ const workflowFrom = (data: any): WorkflowState => {
     candidateRole: String(data.extractedDetails?.position || ''),
     progress: Math.round((steps.filter(step => step.status === 'completed').length / steps.length) * 100),
   };
+};
+
+const workflowFromHiringRequest = (request: HiringRequest): WorkflowState => {
+  type StepStatus = WorkflowStep['status'];
+  const rejected = request.status === 'REJECTED' || Boolean(request.rejected);
+  const rejectionRole = String(request.rejectedByDepartment || '').toUpperCase();
+  const currentRole = String(request.currentApproverRole || '').toUpperCase();
+  const order = ['HR', 'HIRING_MANAGER', 'FINANCE', 'LEGAL', 'OFFER', 'EMAIL'];
+  const rejectedIndex = rejectionRole ? order.indexOf(rejectionRole === 'MANAGER' ? 'HIRING_MANAGER' : rejectionRole) : -1;
+  const stateFor = (role: string, complete: boolean, active: boolean, failed = false): StepStatus => {
+    const index = order.indexOf(role);
+    if (failed || (rejected && index === rejectedIndex)) return 'failed';
+    if (rejected && (rejectedIndex < 0 || index > rejectedIndex)) return 'terminated';
+    if (complete) return 'completed';
+    return active ? 'running' : 'pending';
+  };
+  const submitted = request.status !== 'DRAFT';
+  const offerGenerated = Boolean(request.pdfGeneratedAt || request.offerLetterStatus === 'GENERATED'
+    || ['OFFER_GENERATED', 'EMAIL_SENDING', 'EMAIL_SENT', 'EMAIL_FAILED', 'WORKFLOW_COMPLETED'].includes(request.status));
+  const emailSent = request.emailStatus === 'SENT' || ['EMAIL_SENT', 'WORKFLOW_COMPLETED'].includes(request.status);
+  const steps: WorkflowStep[] = [
+    { id: 'hr', title: 'HR Submission', status: stateFor('HR', submitted, !submitted), time: formatNormalizedDate(request.createdAt) },
+    { id: 'manager', title: 'Hiring Manager', status: stateFor('HIRING_MANAGER', request.managerApprovalStatus === 'APPROVED', currentRole === 'HIRING_MANAGER', request.managerApprovalStatus === 'REJECTED'), time: request.managerApprovedAt ? formatNormalizedDate(request.managerApprovedAt) : '' },
+    { id: 'finance', title: 'Finance', status: stateFor('FINANCE', request.financeApprovalStatus === 'APPROVED', currentRole === 'FINANCE', request.financeApprovalStatus === 'REJECTED'), time: request.financeApprovedAt ? formatNormalizedDate(request.financeApprovedAt) : '' },
+    { id: 'legal', title: 'Legal', status: stateFor('LEGAL', request.legalApprovalStatus === 'APPROVED', currentRole === 'LEGAL' || currentRole === 'CEO', request.legalApprovalStatus === 'REJECTED'), time: request.legalApprovedAt ? formatNormalizedDate(request.legalApprovedAt) : '' },
+    { id: 'offer', title: 'Document Generation', status: stateFor('OFFER', offerGenerated, request.status === 'GENERATING_OFFER'), time: request.pdfGeneratedAt ? formatNormalizedDate(request.pdfGeneratedAt) : '' },
+    { id: 'email', title: 'Email Delivery', status: stateFor('EMAIL', emailSent, request.status === 'EMAIL_SENDING', request.emailStatus === 'FAILED'), time: request.emailSentAt ? formatNormalizedDate(request.emailSentAt) : '' },
+  ];
+  const logs = (request.activityHistory || []).map(entry => ({
+    time: formatNormalizedDate(entry.timestamp), message: entry.details || String(entry.action || '').replace(/_/g, ' '), type: entry.action,
+  })).reverse();
+  const currentStep = steps.find(step => step.status === 'running' || step.status === 'failed')?.id || '';
+  return { steps, currentStep, logs,
+    status: emailSent ? 'Completed' : rejected || request.emailStatus === 'FAILED' ? 'Paused' : 'Running',
+    candidateName: request.candidateName, candidateRole: request.jobTitle,
+    progress: Math.round((steps.filter(step => step.status === 'completed').length / steps.length) * 100) };
 };
 
 const deriveKpis = (state: AppState): KPIs => {
@@ -178,7 +263,7 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'USER': return { ...state, currentUser: action.payload };
     case 'CANDIDATES': {
-      const next = { ...state, candidates: action.payload, hydrated: true, loading: { ...state.loading, app: false } };
+      const next = { ...state, legacyCandidates: action.payload, candidates: mergeCandidates(action.payload, state.hiringRequests), hydrated: true, loading: { ...state.loading, app: false } };
       return { ...next, kpis: deriveKpis(next) };
     }
     case 'EMPLOYEES': {
@@ -190,7 +275,9 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...next, kpis: deriveKpis(next) };
     }
     case 'HIRING_REQUESTS': {
-      const next = { ...state, hiringRequests: action.payload };
+      const workflows: Record<string, WorkflowState> = {};
+      action.payload.forEach(request => { workflows[request.id] = workflowFromHiringRequest(request); });
+      const next = { ...state, hiringRequests: action.payload, candidates: mergeCandidates(state.legacyCandidates, action.payload), workflows, hydrated: true, loading: { ...state.loading, app: false } };
       return { ...next, kpis: deriveKpis(next) };
     }
     case 'ACTIVITIES': return { ...state, activities: action.payload };
@@ -254,11 +341,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         payload: snap.docs.map(item => candidateFrom(item.id, item.data())) }), fail),
       onSnapshot(collection(db, 'employees'), snap => dispatch({ type: 'EMPLOYEES',
         payload: snap.docs.map(item => candidateFrom(item.id, item.data())) }), fail),
-      onSnapshot(collection(db, 'workflowRequests'), snap => {
-        const workflows: Record<string, WorkflowState> = {};
-        snap.docs.forEach(item => { workflows[item.id] = workflowFrom(item.data()); });
-        dispatch({ type: 'WORKFLOWS', payload: workflows });
-      }, fail),
       onSnapshot(collection(db, 'hiringRequests'), snap => {
         dispatch({ type: 'HIRING_REQUESTS', payload: snap.docs.map(item => ({ id: item.id, ...item.data() })) as HiringRequest[] });
       }, fail),
@@ -269,7 +351,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const timestamp = d ? d.toISOString() : '';
           return { id: item.id, message: String(data.action || ''), sub: String(data.details || ''),
             timestamp, time: d ? formatNormalizedDate(d) : 'Time unavailable',
-            type: String(data.action || '').includes('FAILED') ? 'error' : 'success' } as AppActivity;
+            type: String(data.action || '').includes('FAILED') ? 'error' : 'success', requestId: data.requestId,
+            actorName: String(data.performedByName || data.actor?.name || '') } as AppActivity;
         }).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50) }), fail),
       onSnapshot(collection(db, 'notifications'), snap => dispatch({ type: 'NOTIFICATIONS', payload: snap.docs
         .filter(item => !item.data().targetRole || item.data().targetRole === user.role)

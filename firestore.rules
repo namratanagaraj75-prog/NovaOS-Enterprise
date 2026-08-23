@@ -98,7 +98,8 @@ service cloud.firestore {
     }
 
     match /hiringRequests/{documentId} {
-      allow read: if activeUser() && (role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR']
+      allow read: if hiringRole() && (
+        role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'FINANCE', 'LEGAL']
         || ((role() == 'HIRING_MANAGER' || role() == 'MANAGER') && resource.data.hiringManagerId == request.auth.uid));
       allow update: if activeUser() && (
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
@@ -108,6 +109,20 @@ service cloud.firestore {
         )
       );
       allow create, delete: if false;
+    }
+
+    match /legalPolicies/{documentId} {
+      allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
+      allow write: if false;
+    }
+
+    match /legalReviews/{documentId} {
+      allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
+      allow write: if false;
+      match /history/{historyId} {
+        allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
+        allow write: if false;
+      }
     }
 
     match /accessRequests/{documentId} {

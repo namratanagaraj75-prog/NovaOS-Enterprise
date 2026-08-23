@@ -21,7 +21,7 @@ export const ExecutionLog: React.FC<ExecutionLogProps> = ({ logs }) => {
         <AnimatePresence initial={false}>
           {logs.length === 0 ? (
             <div className="text-[11px] text-gray-500 flex items-center justify-center h-full">
-              No executions logged yet. Start workflow.
+              No workflow events have been recorded for this request.
             </div>
           ) : (
             logs.map((log, index) => (

@@ -16,7 +16,7 @@ import {
 interface WorkflowNodeProps {
   id: string;
   title: string;
-  status: 'completed' | 'running' | 'pending' | 'failed';
+  status: 'completed' | 'running' | 'pending' | 'failed' | 'terminated';
   time?: string;
   index: number;
 }
@@ -76,6 +76,10 @@ export const WorkflowNode: React.FC<WorkflowNodeProps> = ({
         <span>SUSPENDED</span>
       </span>
     );
+  } else if (status === 'terminated') {
+    cardClass = "border border-slate-700/40 bg-slate-950/60 opacity-60";
+    iconContainerClass = "bg-slate-800/40 text-slate-600 border border-slate-700/40";
+    statusBadge = <span className="text-[9px] font-mono text-slate-500 font-bold px-2 py-0.5 rounded border border-slate-700/50">TERMINATED</span>;
   } else {
     statusBadge = (
       <span className="flex items-center gap-1 text-[9px] font-mono text-gray-500 font-medium bg-white/5 px-2 py-0.5 rounded border border-white/5">
@@ -107,6 +111,7 @@ export const WorkflowNode: React.FC<WorkflowNodeProps> = ({
             ${status === 'completed' && 'text-emerald-400'}
             ${status === 'running' && 'text-cyan-400'}
             ${status === 'failed' && 'text-rose-400'}
+            ${status === 'terminated' && 'text-slate-600'}
             ${status === 'pending' && 'text-slate-400'}
           `}>
             {title}

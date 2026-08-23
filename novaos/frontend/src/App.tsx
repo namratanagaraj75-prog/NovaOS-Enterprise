@@ -27,6 +27,7 @@ import ManagerDashboard from "./pages/ManagerDashboard";
 import LegalDashboard from "./pages/LegalDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import FinanceDashboard from "./pages/FinanceDashboard";
+import LegalPolicyManager from "./pages/LegalPolicyManager";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppErrorBoundary from "./components/AppErrorBoundary";
@@ -121,9 +122,17 @@ const NotificationBell = () => {
 // Layout wrapper for pages requiring navigation sidebar
 const DashboardLayout = () => {
   const { logout, user } = useAuth();
-  const { backendOnline } = useAppContext();
+  const { backendOnline, hiringRequests } = useAppContext();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const searchResults = React.useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return hiringRequests.filter(item => [item.candidateName,item.candidateEmail,item.jobTitle,item.department,item.status]
+      .some(value => String(value || '').toLowerCase().includes(query))).slice(0,8);
+  }, [hiringRequests, searchQuery]);
 
   return (
     <div className="flex h-screen bg-[#080613] overflow-hidden">
@@ -135,7 +144,7 @@ const DashboardLayout = () => {
         {/* Fixed Top Bar */}
         <header className="h-14 bg-[#080613]/90 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
           {/* Left: Search */}
-          <div className="flex items-center gap-3 flex-1 max-w-md">
+          <div className="flex items-center gap-3 flex-1 max-w-md relative">
             <div
               className={`flex items-center gap-2 rounded-xl border transition-all duration-200 px-3 py-2 ${
                 searchOpen
@@ -159,6 +168,11 @@ const DashboardLayout = () => {
                 </button>
               )}
             </div>
+            {searchOpen && searchQuery.trim() && <div className="absolute left-0 top-12 w-96 max-w-[80vw] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50">
+              {searchResults.length ? searchResults.map(item => <button key={item.id} onMouseDown={event => event.preventDefault()} onClick={() => { navigate('/hiring-requests/'+item.id); setSearchOpen(false); setSearchQuery(''); }} className="w-full text-left p-3 rounded-xl hover:bg-slate-800 border border-transparent hover:border-slate-700">
+                <strong className="text-xs text-white block">{item.candidateName}</strong><span className="text-[10px] text-slate-400">{item.jobTitle} · {item.department || 'No department'}</span><span className="text-[9px] text-cyan-400 font-mono block mt-1">{item.status.replace(/_/g,' ')}</span>
+              </button>) : <p className="text-xs text-slate-500 text-center py-6">No candidates, job titles, departments, or statuses match.</p>}
+            </div>}
           </div>
 
           {/* Center: Backend status */}
@@ -180,7 +194,7 @@ const DashboardLayout = () => {
             <NotificationBell />
 
             {/* Profile pill */}
-            <div className="flex items-center gap-2 bg-[#121426] border border-white/5 px-3 py-1.5 rounded-xl">
+            <div className="relative"><button onClick={() => setProfileOpen(open => !open)} className="flex items-center gap-2 bg-[#121426] border border-white/5 px-3 py-1.5 rounded-xl">
               {user?.photoURL ? (
                 <img
                   src={user.photoURL}
@@ -201,7 +215,7 @@ const DashboardLayout = () => {
                   {(user?.role || "EMPLOYEE").replace("_", " ")}
                 </span>
               </div>
-            </div>
+            </button>{profileOpen && <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 text-xs"><p className="font-bold text-white">{user?.displayName || 'NovaOS User'}</p><p className="text-slate-500 mt-1">{user?.email}</p><div className="border-t border-slate-800 mt-3 pt-3 space-y-2"><p className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-violet-400">{(user?.role || 'EMPLOYEE').replace('_',' ')}</span></p><p className="flex justify-between"><span className="text-slate-500">System</span><span className={backendOnline?'text-emerald-400':'text-rose-400'}>{backendOnline?'Connected':'Offline'}</span></p><button onClick={logout} className="w-full text-left text-rose-400 pt-2 border-t border-slate-800">Logout</button></div></div>}</div>
           </div>
         </header>
 
@@ -295,6 +309,7 @@ function AppContent() {
         }
       >
         <Route path="/admin" element={<SuperAdminDashboard />} />
+        <Route path="/admin/legal-policies" element={<LegalPolicyManager />} />
       </Route>
 
       {/* Recruitment Pipeline Portal (Super Admin, HR Admin & Manager) */}

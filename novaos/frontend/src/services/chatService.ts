@@ -49,7 +49,7 @@ export const confirmCandidate = async (
     email: candidate.email,
     status: "Applied",
     matchScore: candidate.matchScore || 85,
-    source: candidate.source || "AI Command Center Sourced",
+    source: candidate.source || "Nova Cortex Sourced",
     aiSummary:
       candidate.aiSummary || candidate.resumeSummary || "Vetted details.",
   });
@@ -57,6 +57,5 @@ export const confirmCandidate = async (
 };
 
 export default { sendPrompt, confirmCandidate };
-
 
 

@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Award, ArrowRight } from 'lucide-react';
+import { Award, ArrowRight, CalendarDays, ShieldAlert } from 'lucide-react';
 import { Candidate } from '../services/recruitmentService';
+import { formatNormalizedDate } from '../lib/dateUtils';
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -45,6 +46,13 @@ export const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, onViewD
           <Award className="h-3 w-3 shrink-0" />
           {candidate.matchScore}%
         </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-[9px] text-slate-400">
+        <span>{candidate.department || 'Department not recorded'}</span>
+        <span className="text-right font-mono">{candidate.currentStatus?.replace(/_/g, ' ') || candidate.status}</span>
+        <span className="flex items-center gap-1"><ShieldAlert className="h-3 w-3" />{candidate.riskLevel ? `${candidate.riskLevel} risk` : 'Risk not assessed'}</span>
+        <span className="flex items-center gap-1 justify-end"><CalendarDays className="h-3 w-3" />{candidate.appliedAt ? formatNormalizedDate(candidate.appliedAt) : 'Date unavailable'}</span>
       </div>
 
       {/* Footer Controls: Status Tag & View details button */}

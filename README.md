@@ -4,6 +4,16 @@
   <strong>Enterprise AI Employee Copilot for Intelligent HR Automation</strong>
 </p>
 
+## Rejection notifications and Legal policy review
+
+Rejections run only through Spring Boot. A successful rejection terminates the workflow, records the internal reason and audit event, then sends a privacy-safe candidate email through Resend. Delivery failure never rolls back rejection; authorized reviewers can retry from the hiring request page.
+
+Legal reviewers complete a versioned policy checklist before approval. Mandatory unresolved policies block approval, and policy-specific changes can be routed to HR or Finance. Super Admins manage policies at `/admin/legal-policies`; review history retains policy snapshots.
+
+New Firestore data uses `hiringRequests.candidateEmailNotification`, `legalPolicies`, `legalReviews` (plus `history`), and `auditLogs`. New APIs are rooted at `/api/hiring/requests/{id}/reject`, `/api/hiring/requests/{id}/rejection-email/retry`, `/api/legal/policies`, and `/api/legal/reviews/{id}`.
+
+The backend reads `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and optional `RESEND_FROM_NAME`. Missing credentials leave the application running and mark the notification `FAILED`.
+
 <p align="center">
   Automating hiring workflows, multi-level approvals, offer letter generation, secure email delivery, and enterprise decision tracking.
 </p>
@@ -352,7 +362,14 @@ VITE_FIREBASE_APP_ID=
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 RESEND_FROM_NAME=Nova HR
-FIREBASE_SERVICE_ACCOUNT=
+FIREBASE_CONFIG_PATH=file:./firebase-service-account.json
+FIREBASE_PROJECT_ID=
+FIREBASE_DATABASE_URL=
+# Alternative to FIREBASE_CONFIG_PATH:
+FIREBASE_PRIVATE_KEY_ID=
+FIREBASE_PRIVATE_KEY=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_CLIENT_ID=
 ```
 
 ---

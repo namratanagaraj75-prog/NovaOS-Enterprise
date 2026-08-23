@@ -45,7 +45,7 @@ export const PipelineColumn: React.FC<PipelineColumnProps> = ({
 
         {candidates.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-800 rounded-xl">
-            <span className="text-[10px] font-mono text-slate-500">NO QUEUED CANDIDATES</span>
+            <span className="text-[10px] font-mono text-slate-500">No candidates currently in {title}.</span>
           </div>
         )}
       </div>

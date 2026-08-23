@@ -5,7 +5,7 @@ export type HiringStatus = 'DRAFT' | 'PENDING_MANAGER_APPROVAL' | 'PENDING_FINAN
   'PENDING_LEGAL_APPROVAL' | 'PENDING_CEO_APPROVAL' | 'MANAGER_APPROVED' | 'FINANCE_APPROVED' |
   'LEGAL_APPROVED' | 'CEO_APPROVED' | 'APPROVALS_COMPLETED' | 'GENERATING_OFFER' |
   'OFFER_GENERATED' | 'EMAIL_SENDING' | 'EMAIL_SENT' | 'WORKFLOW_COMPLETED' | 'APPROVED' |
-  'REJECTED' | 'CHANGES_REQUESTED' | 'PDF_GENERATED' | 'EMAIL_FAILED';
+  'REJECTED' | 'CHANGES_REQUESTED' | 'PDF_GENERATED' | 'EMAIL_FAILED' | 'EMPLOYEE_CREATED' | 'AI_SCREENING';
 
 export interface HiringCandidateInput {
   candidateName: string; candidateEmail: string; jobTitle: string; department: string;
@@ -34,6 +34,12 @@ export interface HiringRequest extends HiringCandidateInput {
   pdfUrl?: string; pdfFileName?: string; pdfGeneratedAt?: TimestampInput; emailStatus: string; emailSentAt?: TimestampInput;
   emailMessageId?: string; emailError?: string; activityHistory: ActivityEntry[];
   readBy?: string[];
+  rejected?: boolean; rejectedByDepartment?: string; rejectedByName?: string; rejectedAt?: TimestampInput;
+  internalRejectionReason?: string; workflowTerminated?: boolean;
+  candidateEmailNotification?: { status: 'PENDING'|'SENDING'|'SENT'|'FAILED'; provider: string; sentAt?: TimestampInput; lastAttemptAt?: TimestampInput; messageId?: string; lastError?: string; attemptCount?: number };
+  rejectionLetterStatus?: 'GENERATING'|'GENERATED'|'FAILED'; rejectionPdfUrl?:string; rejectionPdfFileName?:string; rejectionPdfGeneratedAt?:TimestampInput;
+  rejectionEmailStatus?:'PENDING'|'SENDING'|'SENT'|'FAILED'; rejectionEmailSentAt?:TimestampInput;
+  finalApprovedAt?: TimestampInput;
 }
 
 export const emptyCandidate = (): HiringCandidateInput => ({ candidateName:'',candidateEmail:'',jobTitle:'',department:'',
@@ -45,5 +51,8 @@ export const getHiring = async (id:string):Promise<HiringRequest> => (await apiC
 export const updateHiring = async (id:string,candidate:HiringCandidateInput):Promise<HiringRequest> => (await apiClient.put('/hiring/requests/'+id,{candidate})).data;
 export const submitHiring = async (id:string):Promise<HiringRequest> => (await apiClient.post('/hiring/requests/'+id+'/submit')).data;
 export const decideHiring = async (id:string,action:string,reason=''):Promise<HiringRequest> => (await apiClient.post('/hiring/requests/'+id+'/decision',{action,reason})).data;
+export const rejectHiring = async (id:string,internalRejectionReason:string,candidateRejectionMessage?:string):Promise<HiringRequest> => (await apiClient.post('/hiring/requests/'+id+'/reject',{internalRejectionReason,candidateRejectionMessage})).data;
+export const retryRejectionEmail = async (id:string):Promise<HiringRequest> => (await apiClient.post('/hiring/requests/'+id+'/rejection-email/retry')).data;
 export const sendHiringEmail = async (id:string,resendConfirmed=false):Promise<HiringRequest> => (await apiClient.post('/hiring/requests/'+id+'/email',{resendConfirmed})).data;
 export const fetchHiringPdf = async (id:string) => (await apiClient.get('/hiring/requests/'+id+'/pdf',{responseType:'blob'})).data as Blob;
+export const fetchRejectionPdf = async (id:string) => (await apiClient.get('/hiring/requests/'+id+'/rejection-letter',{responseType:'blob'})).data as Blob;

@@ -28,7 +28,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data }) => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-bold text-slate-200">Recruitment Performance Trends</h3>
-          <p className="text-xs text-slate-400">Monthly candidate velocity, interview conversions, and hires count.</p>
+          <p className="text-xs text-slate-400">Monthly candidates, approvals, rejections, and completed hires.</p>
         </div>
         <BarChart2 className="h-4.5 w-4.5 text-slate-400" />
       </div>
@@ -75,10 +75,19 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data }) => {
             />
             <Line 
               type="monotone" 
-              dataKey="interviews" 
-              name="Interviews"
+              dataKey="approved"
+              name="Approved"
               stroke="#8b5cf6" /* violet-500 */
               strokeWidth={2} 
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="rejected"
+              name="Rejected"
+              stroke="#f43f5e"
+              strokeWidth={2}
               dot={{ r: 3 }}
               activeDot={{ r: 5 }}
             />
