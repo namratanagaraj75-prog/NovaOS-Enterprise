@@ -1,6 +1,7 @@
 package com.novaos.api.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -25,6 +26,9 @@ public class FirebaseConfig {
 
     @Value("${firebase.config.path}")
     private String configPath;
+
+    @Value("${firebase.service-account-json:}")
+    private String serviceAccountJson;
 
     @Value("${firebase.project-id}")
     private String projectId;
@@ -67,13 +71,15 @@ public class FirebaseConfig {
             if (FirebaseApp.getApps().isEmpty()) {
                 GoogleCredentials credentials = loadCredentials();
 
-                FirebaseOptions options = FirebaseOptions.builder()
-                        .setCredentials(credentials)
-                        .setProjectId(projectId)
-                        .setDatabaseUrl(databaseUrl)
-                        .build();
+                FirebaseOptions.Builder options = FirebaseOptions.builder().setCredentials(credentials);
+                if (StringUtils.hasText(projectId)) {
+                    options.setProjectId(projectId);
+                }
+                if (StringUtils.hasText(databaseUrl)) {
+                    options.setDatabaseUrl(databaseUrl);
+                }
 
-                FirebaseApp.initializeApp(options);
+                FirebaseApp.initializeApp(options.build());
                 logger.info("Firebase Application has been initialized successfully.");
             }
         } catch (IllegalArgumentException e) {
@@ -92,6 +98,25 @@ public class FirebaseConfig {
     }
 
     private InputStream loadServiceAccountStream() throws Exception {
+        if (StringUtils.hasText(serviceAccountJson)) {
+            logger.info("Initializing Firebase credentials from FIREBASE_SERVICE_ACCOUNT_JSON");
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode credentials = objectMapper.readTree(serviceAccountJson);
+            String type = credentials.path("type").asText();
+            String jsonPrivateKey = credentials.path("private_key").asText();
+            String jsonClientEmail = credentials.path("client_email").asText();
+            if (!"service_account".equals(type)
+                    || !StringUtils.hasText(jsonPrivateKey)
+                    || !StringUtils.hasText(jsonClientEmail)) {
+                throw new IllegalArgumentException("FIREBASE_SERVICE_ACCOUNT_JSON is not a valid service-account credential.");
+            }
+            if (jsonPrivateKey.contains("MOCK_KEY_DATA") || jsonPrivateKey.contains("placeholder")
+                    || jsonClientEmail.contains("placeholder") || jsonClientEmail.contains("novaos-placeholder")) {
+                throw new IllegalArgumentException("FIREBASE_SERVICE_ACCOUNT_JSON contains placeholder/mock data.");
+            }
+            return new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8));
+        }
+
         if (StringUtils.hasText(privateKey) && StringUtils.hasText(clientEmail)) {
             logger.info("Initializing Firebase credentials from environment variables");
             String normalizedPrivateKey = privateKey.replace("\\n", "\n");
