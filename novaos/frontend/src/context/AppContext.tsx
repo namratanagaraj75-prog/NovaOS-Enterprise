@@ -7,6 +7,7 @@ import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 import { Candidate } from '../services/recruitmentService';
 import { WorkflowState, WorkflowStep } from '../services/workflowService';
 import { HiringRequest } from '../services/hiringRequestService';
+import { API_HEALTH_URL } from '../config/api';
 
 export type LoadingKey = 'app' | 'dashboard' | 'commandCenter' | 'pipeline' | 'workflow' | 'intelligence';
 export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error'; requestId?: string; actorName?: string }
@@ -25,6 +26,7 @@ export interface AppState {
   kpis: KPIs;
   executionsToday: number;
   backendOnline: boolean;
+  backendConnecting: boolean;
   lastSync: string | null;
   hydrated: boolean;
   loading: Record<LoadingKey, boolean>;
@@ -42,6 +44,7 @@ type Action =
   | { type: 'SELECT'; payload: string | null }
 
   | { type: 'ONLINE'; payload: boolean }
+  | { type: 'BACKEND_CONNECTING' }
   | { type: 'LOADING'; payload: { key: LoadingKey; value: boolean } }
   | { type: 'READ'; payload?: string };
 
@@ -58,6 +61,7 @@ const initialState: AppState = {
   kpis: { totalCandidates: 0, pendingApprovals: 0, offersSent: 0, employeesCreated: 0, executionsToday: 0 },
   executionsToday: 0,
   backendOnline: false,
+  backendConnecting: true,
   lastSync: null,
   hydrated: false,
   loading: { app: true, dashboard: false, commandCenter: false, pipeline: false, workflow: false, intelligence: false },
@@ -284,7 +288,8 @@ function reducer(state: AppState, action: Action): AppState {
     case 'NOTIFICATIONS': return { ...state, notifications: action.payload };
     case 'NOTIFY': return { ...state, notifications: [action.payload, ...state.notifications].slice(0, 50) };
     case 'SELECT': return { ...state, selectedCandidateId: action.payload };
-    case 'ONLINE': return { ...state, backendOnline: action.payload, lastSync: new Date().toISOString() };
+    case 'ONLINE': return { ...state, backendOnline: action.payload, backendConnecting: false, lastSync: new Date().toISOString() };
+    case 'BACKEND_CONNECTING': return { ...state, backendConnecting: true };
     case 'LOADING': return { ...state, loading: { ...state.loading, [action.payload.key]: action.payload.value } };
     case 'READ': return { ...state, notifications: state.notifications.map(n => ({ ...n, read: action.payload ? n.read || n.id === action.payload : true })) };
   }
@@ -369,35 +374,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     let previous: boolean | null = null;
-    let hasLoggedHealth = false;
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    let activeController: AbortController | undefined;
+
+    const wait = (milliseconds: number) => new Promise<void>(resolve => {
+      retryTimer = window.setTimeout(resolve, milliseconds);
+    });
+
+    const checkHealth = async () => {
+      activeController = new AbortController();
+      const timeout = window.setTimeout(() => activeController?.abort(), 30_000);
+      try {
+        const response = await fetch(API_HEALTH_URL, {
+          signal: activeController.signal,
+          credentials: 'omit',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        return response.ok;
+      } catch {
+        return false;
+      } finally {
+        window.clearTimeout(timeout);
+        activeController = undefined;
+      }
+    };
+
     const ping = async () => {
       let online = false;
-      try {
-        const rawApiUrl = (import.meta.env.VITE_API_URL || "/api").replace(/^VITE_API_URL=/, "");
-        const API_BASE = rawApiUrl.replace(/\/$/, "");
-        const HEALTH_URL = `${API_BASE}/health`;
+      if (previous === null) dispatch({ type: 'BACKEND_CONNECTING' });
 
-        if (!hasLoggedHealth) {
-          console.log("API_BASE", API_BASE);
-          console.log("HEALTH_URL", HEALTH_URL);
-          hasLoggedHealth = true;
-        }
-
-        const res = await fetch(HEALTH_URL);
-        online = res.ok;
-      } catch {
-        online = false;
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) {
+        online = await checkHealth();
+        if (online || attempt === 2) break;
+        await wait(3_000);
       }
+      if (cancelled) return;
+
       dispatch({ type: 'ONLINE', payload: online });
       if (previous !== online) {
         notify(online ? 'Backend Connected' : 'Backend Offline', online ? 'success' : 'warning',
           online ? 'Live services synchronized.' : 'Live hiring actions are paused until the backend reconnects.');
         previous = online;
       }
+      retryTimer = window.setTimeout(ping, 60_000);
     };
     ping();
-    const timer = window.setInterval(ping, 10000);
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      activeController?.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
   }, [notify]);
 
   const readOnlyNotice = useCallback(() => notify('Governed action required', 'warning',

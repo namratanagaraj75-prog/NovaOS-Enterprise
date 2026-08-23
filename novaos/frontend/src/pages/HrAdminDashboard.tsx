@@ -40,7 +40,7 @@ const departmentFor = (action: string, event: any, request: HiringRequest) => {
 
 export const HrAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { hiringRequests, loading, backendOnline, lastSync, refreshDashboard } = useAppContext();
+  const { hiringRequests, loading, backendOnline, backendConnecting, lastSync, refreshDashboard } = useAppContext();
 
   const metrics = useMemo(() => ({
     total: hiringRequests.length,
@@ -113,7 +113,7 @@ export const HrAdminDashboard: React.FC = () => {
   ] as const;
 
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 bg-slate-950 text-slate-200">
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6"><div><p className="text-[10px] text-cyan-400 uppercase tracking-[0.22em] font-mono">Hiring overview</p><h1 className="text-3xl font-extrabold text-white mt-2">HR Portal</h1><p className="text-gray-400 text-sm mt-1">Candidate, approval, offer, rejection, and hiring information only.</p></div><div className="flex items-center gap-3"><button onClick={() => navigate('/chat')} className="flex items-center gap-2 bg-cyan-500 text-slate-950 px-4 py-2.5 rounded-xl text-xs font-bold"><Plus className="h-4 w-4" />New Candidate</button><button onClick={refreshDashboard} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl"><RefreshCw className="h-4 w-4" /></button><span className={`text-[9px] font-mono ${backendOnline ? 'text-emerald-400' : 'text-rose-400'}`}>{backendOnline ? 'HIRING DATA CONNECTED' : 'BACKEND OFFLINE'}{lastSync ? ` · ${formatNormalizedDate(lastSync)}` : ''}</span></div></div>
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6"><div><p className="text-[10px] text-cyan-400 uppercase tracking-[0.22em] font-mono">Hiring overview</p><h1 className="text-3xl font-extrabold text-white mt-2">HR Portal</h1><p className="text-gray-400 text-sm mt-1">Candidate, approval, offer, rejection, and hiring information only.</p></div><div className="flex items-center gap-3"><button onClick={() => navigate('/chat')} className="flex items-center gap-2 bg-cyan-500 text-slate-950 px-4 py-2.5 rounded-xl text-xs font-bold"><Plus className="h-4 w-4" />New Candidate</button><button onClick={refreshDashboard} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl"><RefreshCw className="h-4 w-4" /></button><span className={`text-[9px] font-mono ${backendConnecting ? 'text-amber-400' : backendOnline ? 'text-emerald-400' : 'text-rose-400'}`}>{backendConnecting ? 'CONNECTING TO BACKEND' : backendOnline ? 'HIRING DATA CONNECTED' : 'BACKEND OFFLINE'}{lastSync ? ` · ${formatNormalizedDate(lastSync)}` : ''}</span></div></div>
 
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">{cards.map(([title, value, icon, change], index) => <StatCard key={title} title={title} value={value} change={change} icon={icon} index={index} />)}</div>
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8"><div className="xl:col-span-2"><TrendChart data={trend} /></div><ActivityFeed activities={activity} title="Recent Hiring Activity" description="Candidate approvals, rejections, legal reviews, documents, and email events only." /></div>

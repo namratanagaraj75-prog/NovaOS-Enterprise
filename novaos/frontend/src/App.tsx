@@ -122,7 +122,7 @@ const NotificationBell = () => {
 // Layout wrapper for pages requiring navigation sidebar
 const DashboardLayout = () => {
   const { logout, user } = useAuth();
-  const { backendOnline, hiringRequests } = useAppContext();
+  const { backendOnline, backendConnecting, hiringRequests } = useAppContext();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -177,15 +177,15 @@ const DashboardLayout = () => {
 
           {/* Center: Backend status */}
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${backendOnline ? "bg-[#00E676]/5 border-[#00E676]/10" : "bg-rose-500/5 border-rose-500/10"}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${backendConnecting ? "bg-amber-500/5 border-amber-500/10" : backendOnline ? "bg-[#00E676]/5 border-[#00E676]/10" : "bg-rose-500/5 border-rose-500/10"}`}
           >
             <Cpu
-              className={`h-3 w-3 animate-pulse shrink-0 ${backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
+              className={`h-3 w-3 animate-pulse shrink-0 ${backendConnecting ? "text-amber-400" : backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
             />
             <span
-              className={`text-[10px] font-mono font-bold tracking-wider ${backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
+              className={`text-[10px] font-mono font-bold tracking-wider ${backendConnecting ? "text-amber-400" : backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
             >
-              {backendOnline ? "GEMINI ENGINE ONLINE" : "OFFLINE SIMULATION"}
+              {backendConnecting ? "CONNECTING TO BACKEND" : backendOnline ? "GEMINI ENGINE ONLINE" : "BACKEND OFFLINE"}
             </span>
           </div>
 
@@ -215,7 +215,7 @@ const DashboardLayout = () => {
                   {(user?.role || "EMPLOYEE").replace("_", " ")}
                 </span>
               </div>
-            </button>{profileOpen && <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 text-xs"><p className="font-bold text-white">{user?.displayName || 'NovaOS User'}</p><p className="text-slate-500 mt-1">{user?.email}</p><div className="border-t border-slate-800 mt-3 pt-3 space-y-2"><p className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-violet-400">{(user?.role || 'EMPLOYEE').replace('_',' ')}</span></p><p className="flex justify-between"><span className="text-slate-500">System</span><span className={backendOnline?'text-emerald-400':'text-rose-400'}>{backendOnline?'Connected':'Offline'}</span></p><button onClick={logout} className="w-full text-left text-rose-400 pt-2 border-t border-slate-800">Logout</button></div></div>}</div>
+            </button>{profileOpen && <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 text-xs"><p className="font-bold text-white">{user?.displayName || 'NovaOS User'}</p><p className="text-slate-500 mt-1">{user?.email}</p><div className="border-t border-slate-800 mt-3 pt-3 space-y-2"><p className="flex justify-between"><span className="text-slate-500">Role</span><span className="text-violet-400">{(user?.role || 'EMPLOYEE').replace('_',' ')}</span></p><p className="flex justify-between"><span className="text-slate-500">System</span><span className={backendConnecting?'text-amber-400':backendOnline?'text-emerald-400':'text-rose-400'}>{backendConnecting?'Connecting':backendOnline?'Connected':'Offline'}</span></p><button onClick={logout} className="w-full text-left text-rose-400 pt-2 border-t border-slate-800">Logout</button></div></div>}</div>
           </div>
         </header>
 
