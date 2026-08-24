@@ -7,6 +7,7 @@ import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 import { Candidate } from '../services/recruitmentService';
 import { WorkflowState, WorkflowStep } from '../services/workflowService';
 import { HiringRequest } from '../services/hiringRequestService';
+import { API_HEALTH_URL } from '../config/api';
 
 export type LoadingKey = 'app' | 'dashboard' | 'commandCenter' | 'pipeline' | 'workflow' | 'intelligence';
 export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error'; requestId?: string; actorName?: string }
@@ -29,6 +30,7 @@ export interface AppState {
   kpis: KPIs;
   executionsToday: number;
   backendOnline: boolean;
+  backendConnecting: boolean;
   lastSync: string | null;
   hydrated: boolean;
   loading: Record<LoadingKey, boolean>;
@@ -69,6 +71,7 @@ const initialState: AppState = {
   kpis: { totalCandidates: 0, pendingApprovals: 0, offersSent: 0, employeesCreated: 0, executionsToday: 0 },
   executionsToday: 0,
   backendOnline: false,
+  backendConnecting: true,
   lastSync: null,
   hydrated: false,
   loading: { app: true, dashboard: false, commandCenter: false, pipeline: false, workflow: false, intelligence: false },
@@ -288,7 +291,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'EMAIL_NOTIFICATIONS': return { ...state, emailNotifications: action.payload };
     case 'NOTIFY': return { ...state, notifications: [action.payload, ...state.notifications].slice(0, 50) };
     case 'SELECT': return { ...state, selectedCandidateId: action.payload };
-    case 'ONLINE': return { ...state, backendOnline: action.payload, lastSync: new Date().toISOString() };
+    case 'ONLINE': return { ...state, backendOnline: action.payload, backendConnecting: false, lastSync: new Date().toISOString() };
     case 'LOADING': return { ...state, loading: { ...state.loading, [action.payload.key]: action.payload.value } };
     case 'READ': return { ...state, notifications: state.notifications.map(n => ({ ...n, read: action.payload ? n.read || n.id === action.payload : true })) };
     case 'READ_REQUEST': return { ...state, notifications: state.notifications.map(n => ({ ...n, read: n.read || n.requestId === action.payload })) };
@@ -388,34 +391,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     let previous: boolean | null = null;
     let hasLoggedHealth = false;
+    let timer: number | undefined;
+    let stopped = false;
     const ping = async () => {
       let online = false;
       try {
-        const rawApiUrl = (import.meta.env.VITE_API_URL || "/api").replace(/^VITE_API_URL=/, "");
-        const API_BASE = rawApiUrl.replace(/\/$/, "");
-        const HEALTH_URL = `${API_BASE}/health`;
-
         if (!hasLoggedHealth) {
-          console.log("API_BASE", API_BASE);
-          console.log("HEALTH_URL", HEALTH_URL);
+          console.info('NovaOS backend health check', API_HEALTH_URL);
           hasLoggedHealth = true;
         }
 
-        const res = await fetch(HEALTH_URL);
-        online = res.ok;
-      } catch {
-        online = false;
+        const response = await fetch(API_HEALTH_URL, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        const body = response.ok ? await response.json().catch(() => null) : null;
+        online = response.ok && body?.status === 'UP';
+        if (!online) {
+          console.warn('NovaOS backend health check failed', {
+            url: API_HEALTH_URL,
+            status: response.status,
+          });
+        }
+      } catch (error) {
+        console.warn('NovaOS backend health check could not reach the server', {
+          url: API_HEALTH_URL,
+          error: error instanceof Error ? error.message : 'Network error',
+        });
       }
+      if (stopped) return;
       dispatch({ type: 'ONLINE', payload: online });
       if (previous !== online) {
         notify(online ? 'Backend Connected' : 'Backend Offline', online ? 'success' : 'warning',
           online ? 'Live services synchronized.' : 'Live hiring actions are paused until the backend reconnects.');
         previous = online;
       }
+      timer = window.setTimeout(ping, 10000);
     };
     ping();
-    const timer = window.setInterval(ping, 10000);
-    return () => window.clearInterval(timer);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [notify]);
 
   const readOnlyNotice = useCallback(() => notify('Governed action required', 'warning',

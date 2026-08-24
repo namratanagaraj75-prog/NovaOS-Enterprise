@@ -7,6 +7,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import com.novaos.api.controller.ApiController;
+import com.novaos.api.controller.HealthController;
 import com.novaos.api.ai.GeminiService;
 import com.novaos.api.repository.EmployeeRepository;
 import com.novaos.api.service.CandidateService;
@@ -18,9 +19,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(ApiController.class)
+@WebMvcTest({ApiController.class, HealthController.class})
 @Import(SecurityConfig.class)
 class SecurityConfigTest {
     @Autowired MockMvc mvc;
@@ -35,6 +37,13 @@ class SecurityConfigTest {
     @Test void missingTokenReturns401() throws Exception {
         passThroughFilter();
         mvc.perform(get("/api/dashboard")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void healthIsPublicAndReportsUp() throws Exception {
+        passThroughFilter();
+        mvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 
     @Test void hrAdminIsAuthorized() throws Exception {

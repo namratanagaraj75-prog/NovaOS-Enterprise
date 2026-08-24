@@ -27,7 +27,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { logout, user } = useAuth();
-  const { backendOnline, notifications } = useAppContext();
+  const { backendOnline, backendConnecting, notifications } = useAppContext();
 
   const userRole = (user?.role || "EMPLOYEE").toUpperCase();
 
@@ -263,10 +263,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         {/* Status indicator */}
         <div className="flex items-center gap-2 px-1 mb-3">
           <span
-            className={`h-1.5 w-1.5 rounded-full animate-pulse shrink-0 ${backendOnline ? "bg-[#00E676]" : "bg-rose-500"}`}
+            className={`h-1.5 w-1.5 rounded-full animate-pulse shrink-0 ${backendConnecting ? "bg-amber-400" : backendOnline ? "bg-[#00E676]" : "bg-rose-500"}`}
           ></span>
           <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">
-            {backendOnline ? "Connected" : "Offline Simulation"}
+            {backendConnecting ? "Connecting..." : backendOnline ? "Connected" : "Offline"}
           </span>
         </div>
 

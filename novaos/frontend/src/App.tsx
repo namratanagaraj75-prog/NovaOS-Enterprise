@@ -114,7 +114,7 @@ const NotificationBell = () => {
 // Layout wrapper for pages requiring navigation sidebar
 const DashboardLayout = () => {
   const { logout, user } = useAuth();
-  const { backendOnline, hiringRequests } = useAppContext();
+  const { backendOnline, backendConnecting, hiringRequests } = useAppContext();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -169,15 +169,15 @@ const DashboardLayout = () => {
 
           {/* Center: Backend status */}
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${backendOnline ? "bg-[#00E676]/5 border-[#00E676]/10" : "bg-rose-500/5 border-rose-500/10"}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${backendConnecting ? "bg-amber-500/5 border-amber-500/10" : backendOnline ? "bg-[#00E676]/5 border-[#00E676]/10" : "bg-rose-500/5 border-rose-500/10"}`}
           >
             <Cpu
-              className={`h-3 w-3 animate-pulse shrink-0 ${backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
+              className={`h-3 w-3 animate-pulse shrink-0 ${backendConnecting ? "text-amber-400" : backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
             />
             <span
-              className={`text-[10px] font-mono font-bold tracking-wider ${backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
+              className={`text-[10px] font-mono font-bold tracking-wider ${backendConnecting ? "text-amber-400" : backendOnline ? "text-[#00E676]" : "text-rose-400"}`}
             >
-              {backendOnline ? "GEMINI ENGINE ONLINE" : "OFFLINE SIMULATION"}
+              {backendConnecting ? "BACKEND CONNECTING..." : backendOnline ? "BACKEND ONLINE" : "BACKEND OFFLINE"}
             </span>
           </div>
 
