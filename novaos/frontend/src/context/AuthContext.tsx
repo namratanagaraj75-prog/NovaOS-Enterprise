@@ -156,10 +156,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     fbUser: FirebaseUser,
     frontendUser: AuthUser,
     forceRefresh = false,
+    recordAccess = false,
   ) => {
     try {
       const idToken = await fbUser.getIdToken(forceRefresh);
-      const res = await apiClient.post("/auth/verify", { idToken });
+      const res = await apiClient.post("/auth/verify", { idToken, recordAccess });
       const backendUser = res.data.user as AuthUser;
       const verifiedUser = {
         ...frontendUser,
@@ -178,12 +179,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const completeLogin = async (fbUser: FirebaseUser, forceRefresh = false) => {
+  const completeLogin = async (
+    fbUser: FirebaseUser,
+    forceRefresh = false,
+    recordAccess = false,
+  ) => {
     const frontendUser = await readAuthorizedEmployee(fbUser);
     const verifiedUser = await verifyWithBackend(
       fbUser,
       frontendUser,
       forceRefresh,
+      recordAccess,
     );
     setUser(verifiedUser);
     setAuthError(null);
@@ -226,7 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       const credential = await signInWithPopup(auth, provider);
-      await completeLogin(credential.user, true);
+      await completeLogin(credential.user, true, true);
     } catch (error: any) {
       await clearRejectedSession(authErrorFrom(error, ACCESS_DENIED_MESSAGE));
       throw error;
@@ -248,7 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         email,
         password,
       );
-      await completeLogin(credential.user, true);
+      await completeLogin(credential.user, true, true);
     } catch (error: any) {
       let errorMessage = authErrorFrom(error);
       if (

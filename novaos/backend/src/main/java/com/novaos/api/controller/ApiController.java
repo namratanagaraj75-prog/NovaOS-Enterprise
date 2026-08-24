@@ -1,6 +1,5 @@
 package com.novaos.api.controller;
 
-import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.firebase.cloud.FirestoreClient;
 import com.novaos.api.dto.*;
 import com.novaos.api.entity.Candidate;
@@ -9,7 +8,6 @@ import com.novaos.api.entity.Workflow;
 import com.novaos.api.service.CandidateService;
 import com.novaos.api.service.RecruitmentService;
 import com.novaos.api.service.WorkflowService;
-import com.novaos.api.service.HiringPolicyEngine;
 import com.novaos.api.ai.GeminiService;
 import com.novaos.api.repository.EmployeeRepository;
 import org.springframework.security.core.Authentication;
@@ -34,45 +32,17 @@ public class ApiController {
     private final CandidateService candidateService;
     private final WorkflowService workflowService;
     private final EmployeeRepository employeeRepository;
-    private final HiringPolicyEngine hiringPolicyEngine;
 
     public ApiController(GeminiService geminiService,
                           RecruitmentService recruitmentService,
                           CandidateService candidateService,
                           WorkflowService workflowService,
-                          EmployeeRepository employeeRepository,
-                          HiringPolicyEngine hiringPolicyEngine) {
+                          EmployeeRepository employeeRepository) {
         this.geminiService = geminiService;
         this.recruitmentService = recruitmentService;
         this.candidateService = candidateService;
         this.workflowService = workflowService;
         this.employeeRepository = employeeRepository;
-        this.hiringPolicyEngine = hiringPolicyEngine;
-    }
-
-    /**
-     * Force-resets all Firestore policy documents to the latest defaults.
-     * Call this when a hiring request is blocked by a stale employment-type policy.
-     * POST /api/admin/reset-policies
-     */
-    @PostMapping("/admin/reset-policies")
-    public ResponseEntity<?> resetPolicies(Authentication auth) {
-        logger.info("REST: Admin policy reset requested by {}", auth != null ? auth.getName() : "anonymous");
-        try {
-            hiringPolicyEngine.resetPolicies(FirestoreClient.getFirestore());
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "All Firestore policy documents have been reset to the latest defaults.",
-                "departmentValidation", "All department names are accepted.",
-                "allowedEmploymentTypes", "Full Time, Full-time, Permanent, Contract, Part Time, Internship"
-            ));
-        } catch (Exception e) {
-            logger.error("Policy reset failed: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                "success", false,
-                "message", "Policy reset failed: " + e.getMessage()
-            ));
-        }
     }
 
     @PostMapping("/chat")
@@ -142,20 +112,19 @@ public class ApiController {
         logger.info("REST: Fetching Firestore dashboard statistics");
 
         long totalCandidates = countCollection("candidates");
-        long employeesCreated = countCollection("employees");
+        long employeesCreated = countCandidatesByStatus("EMPLOYEE_CREATED", "Employee Created", "HIRED", "Hired");
         long pendingApprovals = countPendingApprovals();
-        long offersSent = countCandidatesWithOfferSignals();
-        long auditLogs = countCollection("auditLogs");
+        long offersSent = countEmailNotifications("OFFER", "SENT");
+        long auditLogs = countCollection("workflowEvents");
         long emailsSent = countEmailsSent();
         long documentsGenerated = countDocumentsGenerated();
 
-        DocumentSnapshot metrics = readDashboardMetrics();
         DashboardStats stats = DashboardStats.builder()
                 .totalCandidates(totalCandidates)
                 .offersSent(offersSent)
                 .pendingApprovals(pendingApprovals)
                 .employeesCreated(employeesCreated)
-                .aiRequests(metric(metrics, "aiRequests"))
+                .aiRequests(countCollection("candidateIntelligence"))
                 .documentsGenerated(documentsGenerated)
                 .emailsSent(emailsSent)
                 .auditLogs(auditLogs)
@@ -217,30 +186,24 @@ public class ApiController {
 
     private long countPendingApprovals() {
         try {
-            return FirestoreClient.getFirestore().collection("workflowRequests")
-                    .whereEqualTo("status", "Pending")
-                    .get()
-                    .get()
-                    .size();
+            long pending=0;
+            for (var d : FirestoreClient.getFirestore().collection("hiringRequests").get().get().getDocuments()) {
+                String status=String.valueOf(d.get("status"));
+                if (status.startsWith("PENDING") || "DRAFT".equals(status) || "CHANGES_REQUESTED".equals(status)) pending++;
+            }
+            return pending;
         } catch (Exception e) {
             logger.warn("Could not count pending approvals: {}", e.getMessage());
             return 0;
         }
     }
 
-    private long countCandidatesWithOfferSignals() {
+    private long countCandidatesByStatus(String... statuses) {
         try {
-            long offerSent = FirestoreClient.getFirestore().collection("candidates")
-                    .whereEqualTo("status", "Offer Sent")
-                    .get()
-                    .get()
-                    .size();
-            long employeeCreated = FirestoreClient.getFirestore().collection("candidates")
-                    .whereEqualTo("status", "Employee Created")
-                    .get()
-                    .get()
-                    .size();
-            return offerSent + employeeCreated;
+            java.util.Set<String> accepted=java.util.Set.of(statuses); long count=0;
+            for (var d:FirestoreClient.getFirestore().collection("candidates").get().get().getDocuments())
+                if(accepted.contains(String.valueOf(d.get("currentStatus")))||accepted.contains(String.valueOf(d.get("status"))))count++;
+            return count;
         } catch (Exception e) {
             logger.warn("Could not count offer signals: {}", e.getMessage());
             return 0;
@@ -249,29 +212,7 @@ public class ApiController {
 
     private long countEmailsSent() {
         try {
-            com.google.cloud.firestore.Firestore db = FirestoreClient.getFirestore();
-            java.util.Set<String> uniqueIds = new java.util.HashSet<>();
-            for (com.google.cloud.firestore.QueryDocumentSnapshot d : db.collection("hiringRequests").get().get().getDocuments()) {
-                Map<String, Object> data = d.getData();
-                if ("SENT".equals(data.get("emailStatus")) || 
-                    "EMAIL_SENT".equals(data.get("status")) || 
-                    Boolean.TRUE.equals(data.get("emailSent")) || 
-                    data.get("emailSentAt") != null || 
-                    "SENT".equals(data.get("emailDeliveryStatus"))) {
-                    uniqueIds.add(d.getId());
-                }
-            }
-            for (com.google.cloud.firestore.QueryDocumentSnapshot d : db.collection("workflowRequests").get().get().getDocuments()) {
-                Map<String, Object> data = d.getData();
-                if ("SENT".equals(data.get("emailStatus")) || 
-                    "EMAIL_SENT".equals(data.get("state")) || 
-                    Boolean.TRUE.equals(data.get("emailSent")) || 
-                    data.get("emailSentAt") != null || 
-                    "SENT".equals(data.get("emailDeliveryStatus"))) {
-                    uniqueIds.add(d.getId());
-                }
-            }
-            return uniqueIds.size();
+            return countEmailNotifications(null,"SENT");
         } catch (Exception e) {
             logger.warn("Could not count successfully sent emails: {}", e.getMessage());
             return 0;
@@ -280,71 +221,18 @@ public class ApiController {
 
     private long countDocumentsGenerated() {
         try {
-            return FirestoreClient.getFirestore().collection("documents").get().get().size();
+            long count=0;for(var d:FirestoreClient.getFirestore().collection("documents").get().get().getDocuments())
+                if("GENERATED".equals(d.getString("status"))||d.get("generatedAt")!=null)count++;return count;
         } catch (Exception e) {
             logger.warn("Could not count documents generated: {}", e.getMessage());
             return 0;
         }
     }
 
-    private DocumentSnapshot readDashboardMetrics() {
-        try {
-            return FirestoreClient.getFirestore().collection("metrics").document("dashboard").get().get();
-        } catch (Exception e) {
-            logger.warn("Could not read dashboard metrics: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    @PostMapping("/admin/reset-demo-data")
-    public ResponseEntity<?> resetDemoData(Authentication auth) {
-        logger.info("REST: Reset demo data requested by {}", auth != null ? auth.getName() : "anonymous");
-        try {
-            com.google.cloud.firestore.Firestore db = FirestoreClient.getFirestore();
-            deleteCollection(db, "hiringRequests");
-            deleteCollection(db, "workflowRequests");
-            deleteCollection(db, "candidates");
-            deleteCollection(db, "employees");
-            deleteCollection(db, "approvals");
-            deleteCollection(db, "documents");
-            deleteCollection(db, "notifications");
-            deleteCollection(db, "auditLogs");
-            resetMetrics(db);
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Demo data reset successfully."
-            ));
-        } catch (Exception e) {
-            logger.error("Demo data reset failed: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                "success", false,
-                "message", "Demo data reset failed: " + e.getMessage()
-            ));
-        }
-    }
-
-    private void deleteCollection(com.google.cloud.firestore.Firestore db, String collectionName) throws Exception {
-        com.google.cloud.firestore.CollectionReference colRef = db.collection(collectionName);
-        List<com.google.cloud.firestore.QueryDocumentSnapshot> docs = colRef.get().get().getDocuments();
-        for (com.google.cloud.firestore.QueryDocumentSnapshot doc : docs) {
-            doc.getReference().delete().get();
-        }
-    }
-
-    private void resetMetrics(com.google.cloud.firestore.Firestore db) throws Exception {
-        db.collection("metrics").document("dashboard").set(Map.of(
-            "aiRequests", 0L,
-            "documentsGenerated", 0L,
-            "emailsSent", 0L
-        )).get();
-    }
-
-    private long metric(DocumentSnapshot metrics, String field) {
-        if (metrics == null || !metrics.exists()) {
-            return 0;
-        }
-        Long value = metrics.getLong(field);
-        return value != null ? value : 0;
+    private long countEmailNotifications(String type,String status) {
+        try { long count=0;for(var d:FirestoreClient.getFirestore().collection("emailNotifications").get().get().getDocuments())
+            if((type==null||type.equals(d.getString("type")))&&(status==null||status.equals(d.getString("status"))))count++;return count;
+        } catch(Exception e){logger.warn("Could not count email notifications: {}",e.getMessage());return 0;}
     }
 
 }

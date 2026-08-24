@@ -9,38 +9,41 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 @Component
 @ConditionalOnProperty(name = "novaos.demo-reset.enabled", havingValue = "true")
 public class DemoResetRunner implements ApplicationRunner {
+    private static final List<String> TRANSACTIONAL_COLLECTIONS = List.of(
+            "hiringRequests", "candidates", "workflowEvents", "notifications", "legalReviews",
+            "candidateIntelligence", "documents", "emailNotifications",
+            "workflowRequests", "employees", "approvals", "auditLogs", "securityAuditLogs",
+            "aiRequests", "offers", "workflows", "metrics", "policies", "policyDocuments"
+    );
+    private static final Set<String> PRESERVED_COLLECTIONS = Set.of(
+            "users", "legalPolicies", "settings", "accessAuditLogs", "departments", "accessRequests"
+    );
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         Firestore db = FirestoreClient.getFirestore();
-        long count = db.collection("hiringRequests").get().get().size();
-        if (count > 0) {
-            System.out.println("DemoResetRunner: Detected existing requests. Resetting database to clean initial state...");
-            deleteCollection(db, "hiringRequests");
-            deleteCollection(db, "workflowRequests");
-            deleteCollection(db, "candidates");
-            deleteCollection(db, "employees");
-            deleteCollection(db, "approvals");
-            deleteCollection(db, "documents");
-            deleteCollection(db, "notifications");
-            deleteCollection(db, "auditLogs");
-            db.collection("metrics").document("dashboard").set(Map.of(
-                "aiRequests", 0L,
-                "documentsGenerated", 0L,
-                "emailsSent", 0L
-            )).get();
-            System.out.println("DemoResetRunner: Database successfully reset.");
+        System.out.println("DemoResetRunner: starting explicitly enabled transactional-data reset.");
+        for (String collection : TRANSACTIONAL_COLLECTIONS) {
+            int deleted = deleteCollection(db, collection);
+            System.out.println("DemoResetRunner: " + collection + " deleted=" + deleted);
         }
+        System.out.println("DemoResetRunner: preserved configuration collections=" + PRESERVED_COLLECTIONS);
+        System.out.println("DemoResetRunner: reset complete. Firebase Authentication was not accessed.");
     }
 
-    private void deleteCollection(Firestore db, String collectionName) throws Exception {
+    private int deleteCollection(Firestore db, String collectionName) throws Exception {
         List<QueryDocumentSnapshot> docs = db.collection(collectionName).get().get().getDocuments();
         for (QueryDocumentSnapshot doc : docs) {
+            for (var child : doc.getReference().listCollections()) {
+                deleteCollection(db, child.getPath());
+            }
             doc.getReference().delete().get();
         }
+        return docs.size();
     }
 }

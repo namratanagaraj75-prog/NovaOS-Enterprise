@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 @Repository
 public class EmployeeRepository {
 
-    private static final String COLLECTION = "employees";
+    private static final String COLLECTION = "candidates";
 
     public List<Employee> findAll() {
         try {

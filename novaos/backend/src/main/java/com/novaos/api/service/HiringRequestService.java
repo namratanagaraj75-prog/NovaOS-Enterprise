@@ -29,15 +29,18 @@ public class HiringRequestService {
     private final String fromName;
     private final ResendEmailService resendEmailService;
     private final CandidateRejectionService candidateRejectionService;
+    private final ReviewNotificationService reviewNotifications;
 
     public HiringRequestService(HiringCommandParser parser, HiringWorkflowRules rules, HiringPolicyEngine policyEngine, OfferLetterPdfService pdf,
             @Value("${nova.resend.from-name:Nova HR}") String fromName,
             ResendEmailService resendEmailService,
-            CandidateRejectionService candidateRejectionService) {
+            CandidateRejectionService candidateRejectionService,
+            ReviewNotificationService reviewNotifications) {
         this.parser=parser; this.rules=rules; this.policyEngine=policyEngine; this.pdf=pdf;
         this.fromName=trim(fromName);
         this.resendEmailService = resendEmailService;
         this.candidateRejectionService = candidateRejectionService;
+        this.reviewNotifications = reviewNotifications;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -61,7 +64,7 @@ public class HiringRequestService {
             if("BLOCKED".equals(passport.get("decision"))) throw unprocessable("Policy validation blocked this request: "+String.join("; ",strings(passport.get("blockingReasons"))));
             List<String> approvalRoute=strings(passport.get("approvalRoute"));
             Map<String,Object> doc = new HashMap<>();
-            doc.put("id", id); putCandidate(doc, input);
+            doc.put("id", id); doc.put("requestId",id); doc.put("candidateId",id); putCandidate(doc, input);
             String savedHiringManagerId = String.valueOf(manager.get("uid"));
             logManagerAssignment(input.hiringManagerName(), manager, savedHiringManagerId);
             doc.put("hiringManagerId", savedHiringManagerId); doc.put("reportingManagerId", null);
@@ -76,8 +79,20 @@ public class HiringRequestService {
             doc.put("activityHistory", List.of(activityAt("REQUEST_CREATED",actor,"Hiring request created from HR-confirmed AI extraction.",now,id),
                     activityAt("POLICY_VALIDATED",actor,"Decision Passport generated with decision "+passport.get("decision")+" and risk "+passport.get("riskLevel")+".",now,id),
                     activityAt("ROUTED_TO_MANAGER",actor,"Request routed to the verified hiring manager.",now,id)));
-            db.collection("hiringRequests").document(id).create(doc).get();
-            writeAudit(db,id,"REQUEST_CREATED",actor,"Hiring request created and policy validated.");
+            WriteBatch batch = db.batch();
+            Map<String,Object> candidate=new HashMap<>(candidateMap(input));
+            candidate.put("candidateId",id);candidate.put("name",input.candidateName());candidate.put("email",input.candidateEmail());
+            candidate.put("currentStatus","PENDING_MANAGER_APPROVAL");candidate.put("currentStage","HIRING_MANAGER");
+            candidate.put("createdAt",now);candidate.put("updatedAt",now);
+            batch.create(db.collection("candidates").document(id),candidate);
+            batch.create(db.collection("hiringRequests").document(id), doc);
+            batch.create(db.collection("workflowEvents").document(id+"-CANDIDATE_CREATED-"+UUID.randomUUID()),
+                    audit(id,"CANDIDATE_CREATED",actor,"Canonical candidate and hiring request created."));
+            batch.create(db.collection("workflowEvents").document(id+"-HR_SUBMITTED-"+UUID.randomUUID()),
+                    audit(id,"HR_SUBMITTED",actor,"Hiring request created and submitted for Manager review."));
+            reviewNotifications.queueReviewNotification(batch, db, id, input.candidateName(), input.jobTitle(),
+                    "HIRING_MANAGER", savedHiringManagerId);
+            batch.commit().get();
             return get(id, auth);
         } catch (ResponseStatusException e) { throw e; }
         catch (Exception e) { throw server("Firestore could not create the hiring request", e); }
@@ -118,8 +133,14 @@ public class HiringRequestService {
             updates.put("riskLevel",passport.get("riskLevel"));updates.put("riskScore",passport.get("riskScore"));updates.put("managerApprovalStatus","PENDING");updates.put("updatedAt",FieldValue.serverTimestamp());
             updates.put("readBy", FieldValue.delete());
             updates.put("activityHistory",FieldValue.arrayUnion(activity("POLICY_VALIDATED",actor,"Policy validation passed and the request was routed to Manager.",id)));
-            db.collection("hiringRequests").document(id).update(updates).get();
-            writeNotification(db, id, "HIRING_MANAGER", "Hiring Manager approval pending", "Hiring request for " + candidateName + " is pending your approval.");
+            Timestamp now=Timestamp.now();
+            WriteBatch batch = db.batch();
+            batch.update(db.collection("hiringRequests").document(id), updates);
+            batch.set(db.collection("candidates").document(id),Map.of("currentStatus","PENDING_MANAGER_APPROVAL","currentStage","HIRING_MANAGER","updatedAt",now),SetOptions.merge());
+            batch.create(db.collection("workflowEvents").document(id+"-HR_SUBMITTED-"+UUID.randomUUID()),audit(id,"HR_SUBMITTED",actor,"HR submitted the candidate for Manager review."));
+            reviewNotifications.queueReviewNotification(batch, db, id, candidateName, d.getString("jobTitle"),
+                    "HIRING_MANAGER", d.getString("hiringManagerId"));
+            batch.commit().get();
             return get(id,auth);
         } catch(ResponseStatusException e){throw e;} catch(IllegalStateException e){throw conflict(e.getMessage());} catch(Exception e){throw server("Submit failed",e);} }
 
@@ -187,39 +208,18 @@ public class HiringRequestService {
             approval.put("approverName",actor.get("name")); approval.put("approverRole",approverRole); approval.put("status","APPROVE".equals(action)?"APPROVED":action);
             approval.put("comment",Objects.toString(request.reason(),"")); approval.put("timestamp",now);
             WriteBatch batch=db.batch(); batch.update(db.collection("hiringRequests").document(id),updates);
-            batch.set(db.collection("approvals").document(id+"-"+approverRole),approval,SetOptions.merge());
-            batch.create(db.collection("auditLogs").document(id+"-"+transition.activityAction()+"-"+UUID.randomUUID()),audit(id,transition.activityAction(),actor,transition.details()));
-
-            // Synchronize status updates to the corresponding workflowRequests document
-            var workflowRef = db.collection("workflowRequests").document(id);
-            if (workflowRef.get().get().exists()) {
-                Map<String, Object> workflowUpdates = new HashMap<>();
-                String approvedState = approverRole.equals("HIRING_MANAGER") ? "MANAGER_APPROVED" : approverRole + "_APPROVED";
-                String nextState = approverRole.equals("HIRING_MANAGER") ? "LEGAL_PENDING" 
-                                 : approverRole.equals("LEGAL") ? "FINANCE_PENDING" 
-                                 : "OFFER_GENERATING";
-                workflowUpdates.put("state", "APPROVE".equals(action) ? (transition.finalApproval() ? "WORKFLOW_COMPLETED" : nextState) : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
-                workflowUpdates.put("lastCompletedState", "APPROVE".equals(action) ? approvedState : ("REJECT".equals(action) ? "FAILED" : "CHANGES_REQUESTED"));
-                workflowUpdates.put("updatedAt", java.time.Instant.now().toString());
-                batch.update(workflowRef, workflowUpdates);
+            String candidateStage=transition.nextApproverRole()==null?(transition.finalApproval()?"OFFER":"HR"):transition.nextApproverRole();
+            batch.set(db.collection("candidates").document(id),Map.of("currentStatus",transition.nextStatus(),"currentStage",candidateStage,"updatedAt",now),SetOptions.merge());
+            batch.create(db.collection("workflowEvents").document(id+"-"+transition.activityAction()+"-"+UUID.randomUUID()),audit(id,transition.activityAction(),actor,transition.details()));
+            reviewNotifications.resolveCurrent(batch, db, id, approverRole);
+            if ("APPROVE".equals(action) && transition.nextApproverRole() != null) {
+                String nextRole = transition.nextApproverRole();
+                String targetUserId = "HIRING_MANAGER".equals(nextRole) ? d.getString("hiringManagerId") : null;
+                reviewNotifications.queueReviewNotification(batch, db, id, d.getString("candidateName"),
+                        d.getString("jobTitle"), nextRole, targetUserId);
             }
 
             batch.commit().get();
-            
-            String candidateName = d.getString("candidateName");
-            if ("APPROVE".equals(action)) {
-                if (transition.nextApproverRole() != null) {
-                    String nextRole = transition.nextApproverRole();
-                    String title = nextRole.replace("_", " ") + " approval pending";
-                    writeNotification(db, id, nextRole, title, "Hiring request for " + candidateName + " is pending your approval.");
-                } else {
-                    writeNotification(db, id, "HR_ADMIN", "Request approved", "Hiring request for " + candidateName + " has been approved.");
-                }
-            } else {
-                String title = "REJECT".equals(action) ? "Request rejected" : "Changes requested";
-                String desc = "Hiring request for " + candidateName + " was " + ("REJECT".equals(action) ? "rejected." : "sent back for changes.");
-                writeNotification(db, id, "HR_ADMIN", title, desc);
-            }
             
             if(transition.finalApproval()) generateOfferAndSend(id); return get(id,auth);
         } catch(ResponseStatusException e){throw e;} catch(Exception e){throw server("Approval decision failed",e);} }
@@ -297,17 +297,20 @@ public class HiringRequestService {
             
             Map<String,Object> document=new HashMap<>();
             document.put("requestId",id);
+            document.put("candidateId",id);
             document.put("candidateName",d.getString("candidateName"));
             document.put("candidateEmail",d.getString("candidateEmail"));
             document.put("documentType","OFFER_LETTER");
+            document.put("status","GENERATED");
             document.put("generatedAt",now);
             document.put("emailStatus","PENDING");
             document.put("sentBy",actor.get("uid"));
             document.put("finalApprovalStatus","APPROVALS_COMPLETED");
             document.put("documentFileName",filename);
+            document.put("fileName",filename);document.put("fileUrl","/api/hiring/requests/"+id+"/pdf");
             
             WriteBatch batch=db.batch();batch.update(ref,updates);batch.set(db.collection("documents").document(id+"-offer"),document);
-            batch.create(db.collection("auditLogs").document(id+"-OFFER_GENERATED-"+UUID.randomUUID()),audit(id,"OFFER_GENERATED",actor,"Offer PDF generated."));batch.commit().get();
+            batch.create(db.collection("workflowEvents").document(id+"-OFFER_GENERATED-"+UUID.randomUUID()),audit(id,"OFFER_GENERATED",actor,"Offer PDF generated."));batch.commit().get();
         }catch(Exception error){ref.update(Map.of("status","APPROVED","offerLetterStatus","FAILED","offerLetterFailureReason",safeMessage(error),"updatedAt",FieldValue.serverTimestamp(),
                 "activityHistory",FieldValue.arrayUnion(activity("OFFER_GENERATION_FAILED",systemActor(),safeMessage(error),id)))).get();throw error;}
     }
@@ -371,6 +374,10 @@ public class HiringRequestService {
         String startAction = isResend ? "EMAIL_RESEND_STARTED" : (isRetry ? "EMAIL_RETRY_STARTED" : "EMAIL_SEND_STARTED");
         String startDetails = isResend ? "Manual Resend delivery started by " + actor.get("name") + "." : (isRetry ? "Manual Resend retry started." : "Secure backend Resend delivery started.");
         ref.update(Map.of("emailRecipient",email,"activityHistory",FieldValue.arrayUnion(activityAt(startAction,actor,startDetails,started,id)))).get();
+        db.collection("emailNotifications").document(id+"-offer").set(Map.of(
+                "candidateId",id,"requestId",id,"type","OFFER","recipient",email,"status","SENDING",
+                "provider",resendEmailService.providerId(),"attemptedAt",started,"updatedAt",started),SetOptions.merge()).get();
+        writeAudit(db,id,"EMAIL_SEND_STARTED",actor,startDetails);
         
         String deliveryProvider = resendEmailService.providerId();
         try{
@@ -411,6 +418,12 @@ public class HiringRequestService {
             docUpdates.put("finalApprovalStatus", "APPROVALS_COMPLETED");
             docUpdates.put("documentFileName", filename);
             db.collection("documents").document(id+"-offer").set(docUpdates).get();
+            Map<String,Object> emailRecord=new HashMap<>();emailRecord.put("candidateId",id);emailRecord.put("requestId",id);
+            emailRecord.put("type","OFFER");emailRecord.put("recipient",email);emailRecord.put("status","SENT");
+            emailRecord.put("provider",deliveryProvider);emailRecord.put("messageId",messageId);emailRecord.put("sentAt",sent);
+            emailRecord.put("lastError",null);emailRecord.put("attemptCount",attemptNumber);emailRecord.put("updatedAt",sent);
+            db.collection("emailNotifications").document(id+"-offer").set(emailRecord,SetOptions.merge()).get();
+            db.collection("candidates").document(id).set(Map.of("currentStatus","OFFER_SENT","currentStage","COMPLETE","updatedAt",sent),SetOptions.merge()).get();
             
             writeAudit(db,id,successAction,actor,successDetails);
             writeNotification(db, id, "HR_ADMIN", "Email sent", "Offer letter email delivered to " + email);
@@ -457,6 +470,10 @@ public class HiringRequestService {
             docUpdates.put("finalApprovalStatus", "APPROVALS_COMPLETED");
             docUpdates.put("documentFileName", filename);
             db.collection("documents").document(id+"-offer").set(docUpdates,SetOptions.merge()).get();
+            Map<String,Object> emailRecord=new HashMap<>();emailRecord.put("candidateId",id);emailRecord.put("requestId",id);
+            emailRecord.put("type","OFFER");emailRecord.put("recipient",email);emailRecord.put("status","FAILED");
+            emailRecord.put("provider",deliveryProvider);emailRecord.put("lastError",errorMsg);emailRecord.put("updatedAt",failed);
+            db.collection("emailNotifications").document(id+"-offer").set(emailRecord,SetOptions.merge()).get();
             
             writeAudit(db,id,failureAction,actor,errorMsg);
             throw new com.novaos.api.exception.EmailDeliveryException("The offer letter was generated, but email delivery failed.", errorCode, error);
@@ -546,8 +563,8 @@ public class HiringRequestService {
         return changes;
     }
     private List<String> strings(Object value){if(!(value instanceof List<?> list))return List.of();return list.stream().map(String::valueOf).toList();}
-    private Map<String,Object> audit(String requestId,String action,Map<String,Object>actor,String details){Map<String,Object>m=new HashMap<>();m.put("requestId",requestId);m.put("action",action);m.put("performedBy",actor.get("uid"));m.put("performedByName",actor.get("name"));m.put("actor",actor);m.put("details",Objects.toString(details,""));m.put("timestamp",Timestamp.now());return m;}
-    private void writeAudit(Firestore db,String requestId,String action,Map<String,Object>actor,String details)throws Exception{db.collection("auditLogs").document(requestId+"-"+action+"-"+UUID.randomUUID()).create(audit(requestId,action,actor,details)).get();}
+    private Map<String,Object> audit(String requestId,String action,Map<String,Object>actor,String details){Map<String,Object>m=new HashMap<>();m.put("requestId",requestId);m.put("candidateId",requestId);m.put("eventType",action);m.put("action",action);m.put("department",Objects.toString(actor.get("role"),"SYSTEM"));m.put("performedByUserId",actor.get("uid"));m.put("performedBy",actor.get("uid"));m.put("performedByName",actor.get("name"));m.put("actor",actor);m.put("details",Objects.toString(details,""));m.put("timestamp",Timestamp.now());return m;}
+    private void writeAudit(Firestore db,String requestId,String action,Map<String,Object>actor,String details)throws Exception{db.collection("workflowEvents").document(requestId+"-"+action+"-"+UUID.randomUUID()).create(audit(requestId,action,actor,details)).get();}
     private Map<String,Object> systemActor(){return Map.of("uid","SYSTEM","name","NovaOS Automation","email","system@novaos.local","role","SYSTEM");}
     private String approvalSummary(DocumentSnapshot d){List<String>route=strings(d.get("approvalRoute"));List<String>approved=new ArrayList<>();for(String r:route)if("APPROVED".equals(d.getString(approvalPrefix(r)+"ApprovalStatus")))approved.add(title(r));return String.join(" -> ",approved);}
     private String safeMessage(Throwable error){String message=error==null?"Unknown backend failure":Objects.toString(error.getMessage(),error.getClass().getSimpleName());return message.length()>300?message.substring(0,300):message;}
@@ -608,16 +625,21 @@ public class HiringRequestService {
 
     private void writeNotification(Firestore db, String id, String targetRole, String title, String message) {
         try {
-            Map<String, Object> n = new HashMap<>();
-            n.put("requestId", id);
-            n.put("targetRole", targetRole);
-            n.put("title", title);
-            n.put("message", message);
-            n.put("read", false);
-            n.put("timestamp", java.time.Instant.now().toString());
-            db.collection("notifications").document(id + "-" + targetRole + "-" + UUID.randomUUID().toString().substring(0,8)).set(n).get();
-        } catch (Exception e) {
-            logger.error("Failed to write notification: {}", e.getMessage());
+            Map<String, Object> notification = new HashMap<>();
+            notification.put("type", "SYSTEM");
+            notification.put("requestId", id);
+            notification.put("targetRole", targetRole);
+            notification.put("targetUserId", null);
+            notification.put("title", title);
+            notification.put("message", message);
+            notification.put("read", false);
+            notification.put("cancelled", false);
+            notification.put("createdAt", FieldValue.serverTimestamp());
+            notification.put("readAt", null);
+            db.collection("notifications").document().set(notification).get();
+        } catch (Exception error) {
+            logger.error("Failed to write notification: {}", error.getMessage());
         }
     }
+
 }

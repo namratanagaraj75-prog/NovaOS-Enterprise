@@ -55,7 +55,7 @@ export interface FirestoreEmployee {
 }
 
 export const getEmployees = async (): Promise<FirestoreEmployee[]> => {
-  const colRef = collection(db, "employees");
+  const colRef = collection(db, "candidates");
   const snap = await getDocs(colRef);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FirestoreEmployee);
 };
@@ -63,9 +63,8 @@ export const getEmployees = async (): Promise<FirestoreEmployee[]> => {
 export const createEmployee = async (
   emp: FirestoreEmployee,
 ): Promise<string> => {
-  const colRef = collection(db, "employees");
-  const docRef = await addDoc(colRef, emp);
-  return docRef.id;
+  void emp;
+  throw new Error("Employee creation is owned by the governed hiring backend.");
 };
 
 // ----- Departments -----
@@ -98,8 +97,8 @@ export interface FirestoreWorkflowRequest {
 export const getWorkflowRequests = async (): Promise<
   FirestoreWorkflowRequest[]
 > => {
-  const colRef = collection(db, "workflowRequests");
-  const q = query(colRef, orderBy("timestamp", "desc"));
+  const colRef = collection(db, "hiringRequests");
+  const q = query(colRef, orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
   return snap.docs.map(
     (d) => ({ id: d.id, ...d.data() }) as FirestoreWorkflowRequest,
@@ -109,9 +108,8 @@ export const getWorkflowRequests = async (): Promise<
 export const createWorkflowRequest = async (
   req: Omit<FirestoreWorkflowRequest, "id">,
 ): Promise<string> => {
-  const colRef = collection(db, "workflowRequests");
-  const docRef = await addDoc(colRef, req);
-  return docRef.id;
+  void req;
+  throw new Error("Workflow creation is owned by the NovaOS backend.");
 };
 
 // ----- Notifications Management -----
@@ -156,7 +154,7 @@ export interface AuditLog {
 }
 
 export const getAuditLogs = async (): Promise<AuditLog[]> => {
-  const colRef = collection(db, "auditLogs");
+  const colRef = collection(db, "workflowEvents");
   const q = query(colRef, orderBy("timestamp", "desc"));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AuditLog);
@@ -167,14 +165,8 @@ export const writeAuditLog = async (
   actor: string,
   details?: string,
 ): Promise<string> => {
-  const colRef = collection(db, "auditLogs");
-  const docRef = await addDoc(colRef, {
-    action,
-    actor,
-    timestamp: new Date().toISOString(),
-    details,
-  });
-  return docRef.id;
+  void action;void actor;void details;
+  return crypto.randomUUID();
 };
 
 // ----- Access Requests -----

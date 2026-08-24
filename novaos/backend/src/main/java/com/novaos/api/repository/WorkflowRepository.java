@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 @Repository
 public class WorkflowRepository {
 
-    private static final String COLLECTION = "workflows";
+    private static final String COLLECTION = "hiringRequests";
 
     public List<Workflow> findAll() {
         try {

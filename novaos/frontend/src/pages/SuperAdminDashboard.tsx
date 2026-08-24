@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import firestoreService, { AuditLog, FirestoreUser } from '../services/firestoreService';
-import apiClient from '../services/api';
 import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import {
@@ -11,7 +10,6 @@ import {
   CheckCircle2,
   FileText,
   Mail,
-  RefreshCw,
   ScrollText,
   Shield,
   ToggleLeft,
@@ -57,25 +55,6 @@ export const SuperAdminDashboard: React.FC = () => {
   const [department, setDepartment] = useState('');
   const [designation, setDesignation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-
-  const handleResetDemoData = async () => {
-    if (!window.confirm("Are you sure you want to reset all demo data? This will clear all candidates, employees, requests, notifications, approvals, documents, and audit logs.")) {
-      return;
-    }
-    setIsResetting(true);
-    try {
-      await apiClient.post('/admin/reset-demo-data');
-      showToast('Demo database has been successfully reset.', 'success');
-      window.location.reload();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || err.message || 'Reset failed';
-      showToast('Reset failed: ' + errorMsg, 'error');
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   const roles = [
     { value: 'SUPER_ADMIN', label: 'CEO / Super Admin' },
     { value: 'HR_ADMIN', label: 'HR Admin' },
@@ -87,7 +66,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useEffect(() => {
     const unsubscribers = [
-      onSnapshot(collection(db, 'auditLogs'), snap => {
+      onSnapshot(collection(db, 'workflowEvents'), snap => {
         setMetrics(prev => ({ ...prev, auditLogs: snap.size }));
         const logs = snap.docs
           .map(item => ({ id: item.id, ...item.data() } as AuditLog))
@@ -102,13 +81,8 @@ export const SuperAdminDashboard: React.FC = () => {
       onSnapshot(collection(db, 'users'), snap => {
         setUsers(snap.docs.map(item => ({ uid: item.id, ...item.data() } as FirestoreUser)));
       }),
-      onSnapshot(doc(db, 'metrics', 'dashboard'), snap => {
-        const data = snap.data() || {};
-        setMetrics(prev => ({
-          ...prev,
-          aiRequests: Number(data.aiRequests || 0)
-        }));
-      })
+      onSnapshot(collection(db, 'candidateIntelligence'), snap =>
+        setMetrics(prev => ({ ...prev, aiRequests: snap.size })))
     ];
 
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
@@ -206,14 +180,6 @@ export const SuperAdminDashboard: React.FC = () => {
           <p className="text-gray-400 text-xs mt-1">Firestore-backed live metrics, approvals, identity access, and audit trail.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleResetDemoData}
-            disabled={isResetting}
-            className="px-4 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition-all shadow-glow-rose flex items-center gap-2"
-          >
-            {isResetting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>Reset Demo Data</span>
-          </button>
           <div className="flex items-center gap-2 bg-[#121426] border border-white/5 p-1 rounded-xl">
             <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-lg text-xs font-bold ${activeTab === 'overview' ? 'bg-cyan-500 text-slate-950' : 'text-gray-400 hover:text-white'}`}>Overview</button>
             <button onClick={() => setActiveTab('access')} className={`px-4 py-2 rounded-lg text-xs font-bold ${activeTab === 'access' ? 'bg-cyan-500 text-slate-950' : 'text-gray-400 hover:text-white'}`}>Access</button>

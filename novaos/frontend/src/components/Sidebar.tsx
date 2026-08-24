@@ -27,33 +27,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { logout, user } = useAuth();
-  const { backendOnline, backendConnecting, hiringRequests } = useAppContext();
+  const { backendOnline, notifications } = useAppContext();
 
   const userRole = (user?.role || "EMPLOYEE").toUpperCase();
 
   const getUnreadBadge = (itemName: string) => {
-    if (!user || !hiringRequests) return 0;
-    const uid = user.uid;
+    if (!user) return 0;
     const role = user.role;
-
-    if (itemName === "Hiring Requests" || itemName === "HR Portal") {
-      if (role !== "HR_ADMIN" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => !(r.readBy ?? []).includes(uid)).length;
-    }
+    const unreadReviews = notifications.filter(notification => !notification.read
+      && notification.notificationType === 'REVIEW_REQUIRED');
 
     if (itemName === "Manager View") {
-      if (role !== "HIRING_MANAGER" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "HIRING_MANAGER" && !(r.readBy ?? []).includes(uid)).length;
+      if (role !== "HIRING_MANAGER") return 0;
+      return unreadReviews.filter(notification => notification.workflowStage === 'MANAGER_REVIEW').length;
     }
 
     if (itemName === "Legal") {
-      if (role !== "LEGAL" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "LEGAL" && !(r.readBy ?? []).includes(uid)).length;
+      if (role !== "LEGAL") return 0;
+      return unreadReviews.filter(notification => notification.workflowStage === 'LEGAL_REVIEW').length;
     }
 
     if (itemName === "Finance") {
-      if (role !== "FINANCE" && role !== "SUPER_ADMIN" && role !== "CEO") return 0;
-      return hiringRequests.filter(r => r.currentApproverRole === "FINANCE" && !(r.readBy ?? []).includes(uid)).length;
+      if (role !== "FINANCE") return 0;
+      return unreadReviews.filter(notification => notification.workflowStage === 'FINANCE_REVIEW').length;
     }
 
     return 0;
@@ -267,10 +263,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         {/* Status indicator */}
         <div className="flex items-center gap-2 px-1 mb-3">
           <span
-            className={`h-1.5 w-1.5 rounded-full animate-pulse shrink-0 ${backendConnecting ? "bg-amber-400" : backendOnline ? "bg-[#00E676]" : "bg-rose-500"}`}
+            className={`h-1.5 w-1.5 rounded-full animate-pulse shrink-0 ${backendOnline ? "bg-[#00E676]" : "bg-rose-500"}`}
           ></span>
           <span className="text-[9px] text-gray-500 font-mono uppercase tracking-widest">
-            {backendConnecting ? "Connecting" : backendOnline ? "Connected" : "Backend Offline"}
+            {backendOnline ? "Connected" : "Offline Simulation"}
           </span>
         </div>
 

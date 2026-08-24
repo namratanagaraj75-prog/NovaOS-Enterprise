@@ -24,8 +24,9 @@ import {
   retryRejectionEmail,
 } from "../services/hiringRequestService";
 import { useAuth } from "../context/AuthContext";
+import { useAppContext } from "../context/AppContext";
 import { useToast } from "../context/ToastContext";
-import { doc, updateDoc, arrayUnion, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { formatNormalizedDate } from "../lib/dateUtils";
 import LegalPolicyReview from "../components/LegalPolicyReview";
@@ -45,6 +46,7 @@ export default function HiringRequestDetails() {
   const { id = "" } = useParams();
   const nav = useNavigate();
   const { user, isLoading } = useAuth();
+  const { notifications, markReviewNotificationRead } = useAppContext();
   const { showToast } = useToast();
   const [item, setItem] = useState<HiringRequest | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,10 +57,10 @@ export default function HiringRequestDetails() {
 
   useEffect(() => {
     if (!id || !user?.uid) return;
-    updateDoc(doc(db, "hiringRequests", id), {
-      readBy: arrayUnion(user.uid)
-    }).catch(e => console.error("Failed to mark hiring request as read", e));
-  }, [id, user?.uid]);
+    const unreadReview = notifications.some(notification => notification.requestId === id
+      && notification.notificationType === 'REVIEW_REQUIRED' && !notification.read);
+    if (unreadReview) markReviewNotificationRead(id);
+  }, [id, user?.uid, notifications, markReviewNotificationRead]);
 
   useEffect(() => {
     if (isLoading || !user || !id) return;

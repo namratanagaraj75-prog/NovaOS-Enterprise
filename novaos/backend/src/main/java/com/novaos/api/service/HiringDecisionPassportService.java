@@ -47,13 +47,16 @@ public class HiringDecisionPassportService {
     private final GeminiService gemini;
     private final String mailFromName;
     private final ResendEmailService resendEmailService;
+    private final ReviewNotificationService reviewNotifications;
 
     public HiringDecisionPassportService(GeminiService gemini,
             @Value("${nova.resend.from-name:Nova HR}") String mailFromName,
-            ResendEmailService resendEmailService) {
+            ResendEmailService resendEmailService,
+            ReviewNotificationService reviewNotifications) {
         this.gemini = gemini;
         this.mailFromName = trim(mailFromName);
         this.resendEmailService = resendEmailService;
+        this.reviewNotifications = reviewNotifications;
     }
 
     public ParseResponse parse(ParseRequest request, Authentication auth) {
@@ -64,7 +67,7 @@ public class HiringDecisionPassportService {
             ParseResponse result = gemini.parseHiringInstruction(request.instruction());
             Firestore db = db();
             Map<String, Object> record = new HashMap<>();
-            record.put("requestId", requestId);
+            record.put("requestId", requestId);record.put("candidateId",requestId);
             record.put("requestor", actor(auth, db));
             record.put("instruction", request.instruction());
             record.put("intent", result.intent());
@@ -73,7 +76,7 @@ public class HiringDecisionPassportService {
             record.put("confidence", result.confidence());
             record.put("status", "PARSED");
             record.put("createdAt", Instant.now().toString());
-            db.collection("aiRequests").document(requestId).create(record).get();
+            db.collection("candidateIntelligence").document(requestId).create(record).get();
             return result;
         } catch (ResponseStatusException e) {
             throw e;
@@ -87,7 +90,8 @@ public class HiringDecisionPassportService {
                 failed.put("status", "FAILED");
                 failed.put("error", Objects.toString(e.getMessage(), "Gemini parsing failed"));
                 failed.put("createdAt", Instant.now().toString());
-                db.collection("aiRequests").document(requestId).set(failed).get();
+                failed.put("candidateId",requestId);
+                db.collection("candidateIntelligence").document(requestId).set(failed).get();
             } catch (Exception ignored) {}
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, e.getMessage(), e);
         }
@@ -99,10 +103,9 @@ public class HiringDecisionPassportService {
         String requestId = StringUtils.hasText(request.requestId()) ? request.requestId() : UUID.randomUUID().toString();
         try {
             Firestore db = db();
-            DocumentSnapshot existing = db.collection("workflowRequests").document(requestId).get().get();
+            DocumentSnapshot existing = db.collection("hiringRequests").document(requestId).get().get();
             if (existing.exists()) return passport(requestId);
 
-            ensurePolicies(db);
             List<PolicyCheck> checks = evaluate(db, request.candidate(), null);
             List<String> failures = checks.stream().filter(c -> "FAIL".equals(c.status())).map(PolicyCheck::reason).toList();
             if (!failures.isEmpty()) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, String.join("; ", failures));
@@ -114,13 +117,14 @@ public class HiringDecisionPassportService {
             workflow.put("requestId", requestId);
             workflow.put("candidateId", requestId);
             workflow.put("state", "MANAGER_PENDING");
+            workflow.put("status","PENDING_MANAGER_APPROVAL");workflow.put("currentStage","HIRING_MANAGER");
             workflow.put("lastCompletedState", "POLICY_REVIEWED");
             workflow.put("requestor", actor);
             workflow.put("originalInstruction", request.originalInstruction());
             workflow.put("geminiConfidence", request.confidence());
             workflow.put("extractedDetails", candidate);
             workflow.put("policyChecks", checks);
-            workflow.put("approvalChain", List.of("HIRING_MANAGER", "LEGAL", "FINANCE"));
+            workflow.put("approvalChain", List.of("HIRING_MANAGER", "FINANCE", "LEGAL"));
             workflow.put("createdAt", now.toString());
             workflow.put("updatedAt", now.toString());
             workflow.put("emailStatus", "NOT_READY");
@@ -128,11 +132,11 @@ public class HiringDecisionPassportService {
 
             WriteBatch batch = db.batch();
             batch.create(db.collection("candidates").document(requestId), candidate);
-            batch.create(db.collection("workflowRequests").document(requestId), workflow);
-            batch.create(db.collection("auditLogs").document(requestId + "-WORKFLOW_CREATED"),
-                    audit(requestId, "WORKFLOW_CREATED", actor, "Policy checks passed and manager approval requested."));
-            batch.create(db.collection("notifications").document(requestId + "-MANAGER_PENDING"),
-                    notification(requestId, "HIRING_MANAGER", "Manager approval required", request.candidate().name()));
+            batch.create(db.collection("hiringRequests").document(requestId), workflow);
+            batch.create(db.collection("workflowEvents").document(requestId + "-HR_SUBMITTED"),
+                    audit(requestId, "HR_SUBMITTED", actor, "Policy checks passed and manager approval requested."));
+            reviewNotifications.queueReviewNotification(batch, db, requestId, request.candidate().name(),
+                    request.candidate().position(), "HIRING_MANAGER", managerUid(db, request.candidate().manager()));
             batch.commit().get();
             return passport(requestId);
         } catch (ResponseStatusException e) {
@@ -149,7 +153,7 @@ public class HiringDecisionPassportService {
             String role = String.valueOf(actor.get("role"));
             if (!List.of("HIRING_MANAGER", "LEGAL", "FINANCE").contains(role)) throw forbidden("This role cannot approve hiring stages.");
 
-            var workflowRef = db.collection("workflowRequests").document(requestId);
+            var workflowRef = db.collection("hiringRequests").document(requestId);
             DocumentSnapshot workflow = workflowRef.get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             String expectedRole = switch (String.valueOf(workflow.get("state"))) {
@@ -161,10 +165,10 @@ public class HiringDecisionPassportService {
             if (!role.equals(expectedRole)) throw forbidden("Workflow is not awaiting " + role + " approval.");
 
             String approvalId = requestId + "-" + role;
-            if (db.collection("approvals").document(approvalId).get().get().exists()) return passport(requestId);
+            if (db.collection("workflowEvents").document(approvalId).get().get().exists()) return passport(requestId);
 
             String approvedState = role.equals("HIRING_MANAGER") ? "MANAGER_APPROVED" : role + "_APPROVED";
-            String nextState = role.equals("HIRING_MANAGER") ? "LEGAL_PENDING" : role.equals("LEGAL") ? "FINANCE_PENDING" : "OFFER_GENERATING";
+            String nextState = role.equals("HIRING_MANAGER") ? "FINANCE_PENDING" : role.equals("FINANCE") ? "LEGAL_PENDING" : "OFFER_GENERATING";
             Instant now = Instant.now();
             Map<String, Object> approval = new HashMap<>();
             approval.put("requestId", requestId);
@@ -173,75 +177,29 @@ public class HiringDecisionPassportService {
             approval.put("approverRole", role);
             approval.put("comment", request == null ? "" : Objects.toString(request.comment(), ""));
             approval.put("status", "APPROVED");
+            approval.put("candidateId",requestId);approval.put("eventType",approvedState);approval.put("action",approvedState);
             approval.put("timestamp", now.toString());
 
             WriteBatch batch = db.batch();
-            batch.create(db.collection("approvals").document(approvalId), approval);
-            batch.set(workflowRef, Map.of("state", nextState, "lastCompletedState", approvedState,
-                    "updatedAt", now.toString()), SetOptions.merge());
-            batch.create(db.collection("auditLogs").document(requestId + "-" + approvedState),
+            batch.create(db.collection("workflowEvents").document(approvalId), approval);
+            String hiringNextStatus=role.equals("HIRING_MANAGER")?"PENDING_FINANCE_APPROVAL":role.equals("FINANCE")?"PENDING_LEGAL_APPROVAL":"APPROVALS_COMPLETED";
+            String hiringNextRole=role.equals("HIRING_MANAGER")?"FINANCE":role.equals("FINANCE")?"LEGAL":"OFFER";
+            batch.set(workflowRef, Map.of("state", nextState,"status",hiringNextStatus,"currentStage",hiringNextRole,
+                    "lastCompletedState", approvedState,"updatedAt", now.toString()), SetOptions.merge());
+            batch.set(db.collection("candidates").document(requestId),Map.of("currentStatus",hiringNextStatus,"currentStage",hiringNextRole,"updatedAt",now.toString()),SetOptions.merge());
+            batch.create(db.collection("workflowEvents").document(requestId + "-" + approvedState+"-audit"),
                     audit(requestId, approvedState, actor, "Approval recorded with verified identity."));
-            if (!role.equals("FINANCE")) {
-                batch.create(db.collection("notifications").document(requestId + "-" + nextState),
-                        notification(requestId, role.equals("HIRING_MANAGER") ? "LEGAL" : "FINANCE",
-                                nextState.replace('_', ' '), requestId));
-            }
-
-            // Synchronize status updates to the corresponding hiringRequests document
-            var hiringRef = db.collection("hiringRequests").document(requestId);
-            if (hiringRef.get().get().exists()) {
-                Map<String, Object> hiringUpdates = new HashMap<>();
-                String prefix = role.equals("HIRING_MANAGER") ? "manager" : role.toLowerCase(Locale.ROOT);
-                hiringUpdates.put(prefix + "ApprovalStatus", "APPROVED");
-                hiringUpdates.put(prefix + "ApprovedByName", actor.get("name"));
-                hiringUpdates.put(prefix + "ApprovedByEmail", actor.get("email"));
-                hiringUpdates.put(prefix + "ApprovedBy", actor.get("uid"));
-                hiringUpdates.put(prefix + "ApprovedAt", com.google.cloud.Timestamp.now());
-                hiringUpdates.put(prefix + "ApprovalComment", request == null ? "" : Objects.toString(request.comment(), ""));
-
-                String hiringNextStatus = role.equals("HIRING_MANAGER") ? "PENDING_LEGAL_APPROVAL" 
-                                        : role.equals("LEGAL") ? "PENDING_FINANCE_APPROVAL" 
-                                        : "APPROVALS_COMPLETED";
-                hiringUpdates.put("status", hiringNextStatus);
-                hiringUpdates.put("updatedAt", com.google.cloud.Timestamp.now());
-                hiringUpdates.put("currentApprovalIndex", role.equals("HIRING_MANAGER") ? 1 : role.equals("LEGAL") ? 2 : 3);
-
-                String hiringNextRole = role.equals("HIRING_MANAGER") ? "LEGAL" 
-                                      : role.equals("LEGAL") ? "FINANCE" 
-                                      : null;
-                if (hiringNextRole != null) {
-                    hiringUpdates.put("currentApproverRole", hiringNextRole);
-                    String nextPrefix = hiringNextRole.toLowerCase(Locale.ROOT);
-                    hiringUpdates.put(nextPrefix + "ApprovalStatus", "PENDING");
-                } else {
-                    hiringUpdates.put("currentApproverRole", com.google.cloud.firestore.FieldValue.delete());
-                }
-                hiringUpdates.put("readBy", com.google.cloud.firestore.FieldValue.delete());
-
-                // Record status change event to activityHistory
-                String actionName = role.equals("HIRING_MANAGER") ? "MANAGER_APPROVED" : role + "_APPROVED";
-                String details = (role.equals("HIRING_MANAGER") ? "Hiring manager" : (role.substring(0,1) + role.substring(1).toLowerCase(Locale.ROOT))) + " approved the request." 
-                               + (hiringNextRole == null ? " All required approvals are complete." : " Routed to " + (hiringNextRole.substring(0,1) + hiringNextRole.substring(1).toLowerCase(Locale.ROOT)) + ".");
-
-                Map<String, Object> histEvent = new HashMap<>();
-                histEvent.put("action", actionName);
-                histEvent.put("eventType", actionName);
-                histEvent.put("performedBy", actor.get("uid"));
-                histEvent.put("performedByName", actor.get("name"));
-                histEvent.put("actorName", actor.get("name"));
-                histEvent.put("actorEmail", Objects.toString(actor.get("email"), ""));
-                histEvent.put("actorRole", role);
-                histEvent.put("timestamp", com.google.cloud.Timestamp.now());
-                histEvent.put("details", details);
-                histEvent.put("message", details);
-                histEvent.put("requestId", requestId);
-
-                hiringUpdates.put("activityHistory", com.google.cloud.firestore.FieldValue.arrayUnion(histEvent));
-                batch.update(hiringRef, hiringUpdates);
+            reviewNotifications.resolveCurrent(batch, db, requestId, role);
+            if (!role.equals("LEGAL")) {
+                String nextRole = role.equals("HIRING_MANAGER") ? "FINANCE" : "LEGAL";
+                Map<String, Object> details = castMap(workflow.get("extractedDetails"));
+                reviewNotifications.queueReviewNotification(batch, db, requestId,
+                        Objects.toString(details.get("name"), "Candidate"),
+                        Objects.toString(details.get("position"), ""), nextRole, null);
             }
 
             batch.commit().get();
-            if (role.equals("FINANCE")) {
+            if (role.equals("LEGAL")) {
                 generateOffer(requestId);
                 sendOffer(requestId, false, auth);
             }
@@ -263,7 +221,7 @@ public class HiringDecisionPassportService {
         try {
             Firestore db = db();
             Map<String, Object> actor = actor(auth, db);
-            var workflowRef = db.collection("workflowRequests").document(requestId);
+            var workflowRef = db.collection("hiringRequests").document(requestId);
             DocumentSnapshot workflow = workflowRef.get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             String currentEmailStatus = Objects.toString(workflow.get("emailStatus"), "");
@@ -347,7 +305,8 @@ public class HiringDecisionPassportService {
                 ), SetOptions.merge()).get();
                 db.collection("documents").document(requestId + "-offer")
                         .set(documentMetadata(requestId, details, filename, "FAILED", null, actor, safeError), SetOptions.merge()).get();
-                db.collection("auditLogs").document(requestId + "-EMAIL_FAILED-" + System.currentTimeMillis())
+                db.collection("emailNotifications").document(requestId+"-offer").set(Map.of("candidateId",requestId,"requestId",requestId,"type","OFFER","recipient",email,"status","FAILED","provider",deliveryProvider,"lastError",safeError,"updatedAt",Instant.now().toString()),SetOptions.merge()).get();
+                db.collection("workflowEvents").document(requestId + "-EMAIL_FAILED-" + System.currentTimeMillis())
                         .set(audit(requestId, "EMAIL_FAILED", actor, safeError)).get();
                 
                 throw new com.novaos.api.exception.EmailDeliveryException("The offer letter was generated, but email delivery failed.", errorCode, mailError);
@@ -369,7 +328,8 @@ public class HiringDecisionPassportService {
             ), SetOptions.merge()).get();
             db.collection("documents").document(requestId + "-offer")
                     .set(documentMetadata(requestId, details, filename, "SENT", sentAt.toString(), actor, null)).get();
-            db.collection("auditLogs").document(requestId + "-EMAIL_SENT-" + (resend ? sentAt.toEpochMilli() : "INITIAL"))
+            db.collection("emailNotifications").document(requestId+"-offer").set(Map.of("candidateId",requestId,"requestId",requestId,"type","OFFER","recipient",email,"status","SENT","provider",deliveryProvider,"messageId",messageId,"sentAt",sentAt.toString()),SetOptions.merge()).get();
+            db.collection("workflowEvents").document(requestId + "-EMAIL_SENT-" + (resend ? sentAt.toEpochMilli() : "INITIAL"))
                     .set(audit(requestId, resend ? "OFFER_RESENT" : "EMAIL_SENT", actor, "Resend accepted the offer PDF attachment.")).get();
             createEmployee(db, requestId, details, actor);
             return passport(requestId);
@@ -385,7 +345,7 @@ public class HiringDecisionPassportService {
         requireRole(auth, "HR_ADMIN");
         try {
             Firestore db = db();
-            DocumentSnapshot workflow = db.collection("workflowRequests").document(requestId).get().get();
+            DocumentSnapshot workflow = db.collection("hiringRequests").document(requestId).get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             CandidateData current = fromMap(castMap(workflow.get("extractedDetails")));
             CandidateData changed = new CandidateData(current.name(), current.email(), current.position(),
@@ -406,18 +366,17 @@ public class HiringDecisionPassportService {
     public Map<String, Object> passport(String requestId) {
         try {
             Firestore db = db();
-            DocumentSnapshot workflow = db.collection("workflowRequests").document(requestId).get().get();
+            DocumentSnapshot workflow = db.collection("hiringRequests").document(requestId).get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             DocumentSnapshot candidate = db.collection("candidates").document(requestId).get().get();
-            DocumentSnapshot employee = db.collection("employees").document(requestId).get().get();
             return Map.of(
                     "requestId", requestId,
                     "workflow", workflow.getData(),
                     "candidate", candidate.exists() ? candidate.getData() : Map.of(),
-                    "employee", employee.exists() ? employee.getData() : Map.of(),
-                    "approvals", query(db, "approvals", requestId),
+                    "employee", candidate.exists()&&("EMPLOYEE_CREATED".equals(candidate.getString("currentStatus"))||"Employee Created".equals(candidate.getString("status"))) ? candidate.getData() : Map.of(),
+                    "approvals", query(db, "workflowEvents", requestId),
                     "documents", query(db, "documents", requestId),
-                    "auditEvents", query(db, "auditLogs", requestId)
+                    "auditEvents", query(db, "workflowEvents", requestId)
             );
         } catch (ResponseStatusException e) {
             throw e;
@@ -429,7 +388,7 @@ public class HiringDecisionPassportService {
     public List<Map<String, Object>> list(Authentication auth) {
         requireAnyRole(auth, "HR_ADMIN", "HIRING_MANAGER", "LEGAL", "FINANCE", "CEO", "SUPER_ADMIN");
         try {
-            return db().collection("workflowRequests").orderBy("createdAt", com.google.cloud.firestore.Query.Direction.DESCENDING)
+            return db().collection("hiringRequests").orderBy("createdAt", com.google.cloud.firestore.Query.Direction.DESCENDING)
                     .limit(100).get().get().getDocuments().stream().map(DocumentSnapshot::getData).toList();
         } catch (Exception e) {
             throw server("Hiring workflows could not be loaded", e);
@@ -439,7 +398,7 @@ public class HiringDecisionPassportService {
     private void generateOffer(String requestId) {
         try {
             Firestore db = db();
-            var workflowRef = db.collection("workflowRequests").document(requestId);
+            var workflowRef = db.collection("hiringRequests").document(requestId);
             DocumentSnapshot workflow = workflowRef.get().get();
             if (!workflow.exists()) throw notFound("Hiring workflow not found.");
             DocumentSnapshot existing = db.collection("documents").document(requestId + "-offer").get().get();
@@ -457,7 +416,7 @@ public class HiringDecisionPassportService {
             batch.set(db.collection("documents").document(requestId + "-offer"), metadata);
             batch.set(workflowRef, Map.of("state", "OFFER_GENERATED", "lastCompletedState", "OFFER_GENERATED",
                     "offerDocumentId", requestId + "-offer", "emailStatus", "PENDING", "updatedAt", Instant.now().toString()), SetOptions.merge());
-            batch.create(db.collection("auditLogs").document(requestId + "-OFFER_GENERATED"),
+            batch.create(db.collection("workflowEvents").document(requestId + "-OFFER_GENERATED"),
                     audit(requestId, "OFFER_GENERATED", Map.of("uid", "SYSTEM", "email", "system@novaos", "role", "SYSTEM"),
                             "Offer delivery prepared after final approval."));
             batch.commit().get();
@@ -465,7 +424,7 @@ public class HiringDecisionPassportService {
             throw e;
         } catch (Exception e) {
             try {
-                db().collection("workflowRequests").document(requestId).set(Map.of("state", "FAILED",
+                db().collection("hiringRequests").document(requestId).set(Map.of("state", "FAILED",
                         "failedStage", "OFFER_GENERATING", "failureReason", e.getMessage(), "updatedAt", Instant.now().toString()), SetOptions.merge()).get();
             } catch (Exception ignored) {}
             throw server("PDF generation failed", e);
@@ -489,40 +448,33 @@ public class HiringDecisionPassportService {
         checks.add(check("Positive compensation", c.annualCtc() != null && c.annualCtc() > 0 ? "PASS" : "FAIL",
                 "Annual CTC must be a positive integer in INR.", evidence("annualCtc", c.annualCtc())));
 
-        DocumentSnapshot hiring = db.collection("policies").document("hiring").get().get();
+        DocumentSnapshot hiring = db.collection("settings").document("hiringPolicy").get().get();
         List<String> roles = strings(hiring.get("approvedRoles"));
-        checks.add(check("Approved role", containsIgnoreCase(roles, c.position()) ? "PASS" : "FAIL",
-                "Position must exist in policies/hiring approvedRoles.", evidence("position", c.position(), "approvedRoles", roles)));
+        checks.add(check("Approved role", roles.isEmpty()||containsIgnoreCase(roles,c.position()) ? "PASS" : "WARNING",
+                roles.isEmpty()?"No role allow-list is configured; role accepted.":"Position should be reviewed against the configured roles.", evidence("position", c.position(), "approvedRoles", roles)));
         checks.add(check("Department", "PASS",
                 "Department is accepted as entered.", evidence("department", c.department())));
 
-        DocumentSnapshot bands = db.collection("policies").document("salaryBands").get().get();
-        Map<String, Object> allBands = castMap(bands.get("bands"));
+        Map<String, Object> allBands = castMap(hiring.get("salaryBands"));
         Map<String, Object> band = findBand(allBands, c.position());
-        long min = number(band.get("minAnnualCtc")), max = number(band.get("maxAnnualCtc"));
+        long min = number(band.containsKey("min")?band.get("min"):band.get("minAnnualCtc")), max = number(band.containsKey("max")?band.get("max"):band.get("maxAnnualCtc"));
         boolean salaryPass = c.annualCtc() != null && min > 0 && c.annualCtc() >= min && c.annualCtc() <= max;
-        checks.add(check("Salary band", salaryPass ? "PASS" : "FAIL",
-                salaryPass ? "Compensation is within the configured role band." : "Compensation is outside the configured role band.",
+        checks.add(check("Salary band", band.isEmpty()?"WARNING":salaryPass ? "PASS" : "WARNING",
+                band.isEmpty()?"No salary range is configured; Finance review remains required.":salaryPass ? "Compensation is within the configured role band." : "Compensation is outside the configured role band and requires Finance review.",
                 evidence("annualCtc", c.annualCtc(), "minimum", min, "maximum", max)));
 
-        DocumentSnapshot probation = db.collection("policies").document("probation").get().get();
-        List<String> allowedProbation = strings(probation.get("allowedMonths"));
-        boolean probationAllowed = c.probationMonths() != null && allowedProbation.contains(String.valueOf(c.probationMonths()));
-        long defaultProbation = number(probation.get("defaultMonths"));
-        String probationStatus = !probationAllowed ? "FAIL" : c.probationMonths() == defaultProbation ? "PASS" : "WARNING";
+        List<String> allowedProbation = strings(hiring.get("allowedProbationMonths"));
+        boolean probationAllowed = allowedProbation.isEmpty()||c.probationMonths() != null && allowedProbation.contains(String.valueOf(c.probationMonths()));
+        long defaultProbation = number(hiring.get("defaultProbationMonths"));
+        String probationStatus = !probationAllowed ? "WARNING" : defaultProbation<=0||c.probationMonths() == defaultProbation ? "PASS" : "WARNING";
         checks.add(check("Probation policy", probationStatus,
-                !probationAllowed ? "Probation must match policies/probation allowedMonths."
+                !probationAllowed ? "Probation is outside the configured allowed durations."
                         : "WARNING".equals(probationStatus) ? "Allowed exception; configured default is " + defaultProbation + " months."
                         : "Probation matches the configured default.",
                 evidence("months", c.probationMonths(), "allowedMonths", allowedProbation, "defaultMonths", defaultProbation)));
 
-        boolean duplicateEmployee = duplicate(db, "employees", c.email(), currentRequestId);
         boolean duplicateCandidate = duplicate(db, "candidates", c.email(), currentRequestId);
-        if (duplicateEmployee) {
-            checks.add(check("Duplicate identity", "FAIL",
-                    "An employee with this email already exists.",
-                    evidence("email", c.email())));
-        } else if (duplicateCandidate) {
+        if (duplicateCandidate) {
             checks.add(check("Duplicate identity", "WARNING",
                     "A previous hiring request exists for this email. A new request will still be created.",
                     evidence("email", c.email())));
@@ -532,46 +484,20 @@ public class HiringDecisionPassportService {
                     evidence("email", c.email())));
         }
 
-        List<String> chain = strings(hiring.get("approvalChain"));
-        checks.add(check("Approval chain", chain.equals(List.of("HIRING_MANAGER", "LEGAL", "FINANCE")) ? "PASS" : "FAIL",
-                "Required chain is Manager, Legal, then Finance.", evidence("configuredChain", chain)));
+        List<String> chain = strings(hiring.get("approvalChain"));if(chain.isEmpty())chain=List.of("HIRING_MANAGER","FINANCE","LEGAL");
+        checks.add(check("Approval chain", chain.equals(List.of("HIRING_MANAGER", "FINANCE", "LEGAL")) ? "PASS" : "FAIL",
+                "Required chain is Manager, Finance, then Legal.", evidence("configuredChain", chain)));
         return checks;
     }
 
-    private void ensurePolicies(Firestore db) throws Exception {
-        var salary = db.collection("policies").document("salaryBands");
-        var hiring = db.collection("policies").document("hiring");
-        var probation = db.collection("policies").document("probation");
-        if (!salary.get().get().exists()) salary.set(Map.of(
-                "configuration", true, "source", "NovaOS demo minimum configuration",
-                "bands", Map.of("Software Engineer", Map.of("minAnnualCtc", 800000L, "maxAnnualCtc", 1800000L)),
-                "updatedAt", Instant.now().toString())).get();
-        if (!hiring.get().get().exists()) hiring.set(Map.of(
-                "configuration", true, "source", "NovaOS demo minimum configuration",
-                "approvedRoles", List.of("Software Engineer"),
-                "approvalChain", List.of("HIRING_MANAGER", "LEGAL", "FINANCE"), "updatedAt", Instant.now().toString())).get();
-        if (!probation.get().get().exists()) probation.set(Map.of(
-                "configuration", true, "source", "NovaOS demo minimum configuration",
-                "allowedMonths", List.of("3", "6"), "defaultMonths", 6, "updatedAt", Instant.now().toString())).get();
-    }
-
     private void createEmployee(Firestore db, String requestId, Map<String, Object> c, Map<String, Object> actor) throws Exception {
-        var employeeRef = db.collection("employees").document(requestId);
-        if (employeeRef.get().get().exists()) return;
+        var candidateRef = db.collection("candidates").document(requestId);
         Instant now = Instant.now();
-        Map<String, Object> employee = new HashMap<>(c);
-        employee.put("id", requestId);
-        employee.put("requestId", requestId);
-        employee.put("role", c.get("position"));
-        employee.put("status", "Active");
-        employee.put("createdAt", now.toString());
-
         WriteBatch batch = db.batch();
-        batch.create(employeeRef, employee);
-        batch.set(db.collection("candidates").document(requestId), Map.of("status", "Employee Created", "updatedAt", now.toString()), SetOptions.merge());
-        batch.set(db.collection("workflowRequests").document(requestId), Map.of("state", "EMPLOYEE_CREATED",
+        batch.set(candidateRef, Map.of("status", "Employee Created","currentStatus","EMPLOYEE_CREATED","currentStage","COMPLETE", "updatedAt", now.toString()), SetOptions.merge());
+        batch.set(db.collection("hiringRequests").document(requestId), Map.of("state", "EMPLOYEE_CREATED",
                 "lastCompletedState", "EMPLOYEE_CREATED", "employeeCreated", true, "employeeCreatedAt", now.toString(), "updatedAt", now.toString()), SetOptions.merge());
-        batch.create(db.collection("auditLogs").document(requestId + "-EMPLOYEE_CREATED"),
+        batch.create(db.collection("workflowEvents").document(requestId + "-EMPLOYEE_CREATED"),
                 audit(requestId, "EMPLOYEE_CREATED", actor, "Employee created only after successful Resend delivery."));
         batch.commit().get();
     }
@@ -610,14 +536,17 @@ public class HiringDecisionPassportService {
             String emailStatus, String emailSentAt, Map<String, Object> actor, String errorMessage) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("requestId", requestId);
+        metadata.put("candidateId",requestId);
         metadata.put("candidateName", String.valueOf(details.get("name")));
         metadata.put("candidateEmail", String.valueOf(details.get("email")));
         metadata.put("documentType", "OFFER_LETTER");
+        metadata.put("status","GENERATED");
         if (!"FAILED".equals(emailStatus)) metadata.put("generatedAt", Instant.now().toString());
         metadata.put("emailStatus", emailStatus);
         metadata.put("sentBy", actor.get("uid"));
         metadata.put("finalApprovalStatus", "APPROVALS_COMPLETED");
         metadata.put("documentFileName", filename);
+        metadata.put("fileName",filename);metadata.put("fileUrl","/api/hiring/passports/"+requestId+"/offer.pdf");
         if (emailSentAt != null) metadata.put("emailSentAt", emailSentAt);
         if (errorMessage != null) metadata.put("emailErrorMessage", errorMessage);
         return metadata;
@@ -692,11 +621,11 @@ public class HiringDecisionPassportService {
 
     private Map<String, Object> candidateMap(String id, CandidateData c, Instant now) {
         Map<String, Object> map = new HashMap<>();
-        map.put("id", id); map.put("requestId", id); map.put("name", c.name()); map.put("email", c.email().toLowerCase());
+        map.put("id", id);map.put("candidateId",id); map.put("requestId", id); map.put("name", c.name()); map.put("email", c.email().toLowerCase());
         map.put("role", c.position()); map.put("position", c.position()); map.put("annualCtc", c.annualCtc());
         map.put("joiningDate", c.joiningDate()); map.put("department", c.department()); map.put("location", c.location());
         map.put("manager", c.manager()); map.put("probationMonths", c.probationMonths()); map.put("requiredSkills", c.requiredSkills());
-        map.put("status", "Applied"); map.put("source", "AI Command Center"); map.put("createdAt", now.toString()); map.put("updatedAt", now.toString());
+        map.put("status", "Applied");map.put("currentStatus","PENDING_MANAGER_APPROVAL");map.put("currentStage","HIRING_MANAGER"); map.put("source", "AI Command Center"); map.put("createdAt", now.toString()); map.put("updatedAt", now.toString());
         return map;
     }
 
@@ -733,12 +662,21 @@ public class HiringDecisionPassportService {
         return map;
     }
     private Map<String, Object> audit(String requestId, String action, Map<String, Object> actor, String details) {
-        return new HashMap<>(Map.of("requestId", requestId, "action", action, "actor", actor,
+        return new HashMap<>(Map.of("requestId", requestId,"candidateId",requestId,"eventType",action, "action", action, "actor", actor,
+                "department",Objects.toString(actor.get("role"),"SYSTEM"),"performedByUserId",Objects.toString(actor.get("uid"),"SYSTEM"),
                 "details", Objects.toString(details, ""), "timestamp", Instant.now().toString()));
     }
-    private Map<String, Object> notification(String requestId, String role, String title, String message) {
-        return new HashMap<>(Map.of("requestId", requestId, "targetRole", role, "title", title, "message", message,
-                "read", false, "timestamp", Instant.now().toString()));
+    private String managerUid(Firestore db, String managerName) throws Exception {
+        if (!StringUtils.hasText(managerName)) return null;
+        String expected = managerName.trim();
+        for (QueryDocumentSnapshot user : db.collection("users").whereEqualTo("active", true).get().get().getDocuments()) {
+            String role = Objects.toString(user.getString("role"), "").toUpperCase(Locale.ROOT).replace(' ', '_');
+            if (!Set.of("HIRING_MANAGER", "MANAGER").contains(role)) continue;
+            if (expected.equalsIgnoreCase(Objects.toString(user.getString("displayName"), ""))
+                    || expected.equalsIgnoreCase(Objects.toString(user.getString("name"), ""))
+                    || expected.equalsIgnoreCase(Objects.toString(user.getString("email"), ""))) return user.getId();
+        }
+        return null;
     }
     private void row(PdfPTable table, String label, Object value, Font labelFont, Font valueFont) {
         PdfPCell a = new PdfPCell(new Phrase(label, labelFont)); a.setPadding(8); a.setBackgroundColor(new BaseColor(245, 248, 252));

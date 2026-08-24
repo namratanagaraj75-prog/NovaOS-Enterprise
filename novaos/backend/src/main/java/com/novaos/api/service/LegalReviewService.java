@@ -134,8 +134,9 @@ public class LegalReviewService {
             Map<String, Long> counts = counts(results); String overall = overall(results);
             Timestamp now = Timestamp.now(); Map<String, Object> actor = actor(db, auth);
             Map<String, Object> review = new LinkedHashMap<>();
-            review.put("candidateId", requestId); review.put("reviewerId", actor.get("uid")); review.put("reviewerName", actor.get("name"));
-            review.put("reviewedAt", now); review.put("overallStatus", overall); review.put("policyResults", results); review.put("summary", counts);
+            String overallRisk="NON_COMPLIANT".equals(overall)?"HIGH":"REQUIRES_REVIEW".equals(overall)?"MEDIUM":"LOW";
+            review.put("candidateId", requestId);review.put("requestId",requestId); review.put("reviewerId", actor.get("uid")); review.put("reviewerName", actor.get("name"));
+            review.put("reviewedAt", now); review.put("overallStatus", overall);review.put("overallRisk",overallRisk); review.put("policyResults", results); review.put("summary", counts);
             DocumentReference ref = db.collection(COLLECTION).document(requestId);
             WriteBatch batch = db.batch(); batch.set(ref, review, SetOptions.merge());
             Map<String, Object> history = new LinkedHashMap<>(review); history.put("versionId", UUID.randomUUID().toString());
@@ -143,6 +144,8 @@ public class LegalReviewService {
             batch.update(db.collection("hiringRequests").document(requestId), Map.of(
                     "legalReviewStatus", overall, "legalReviewUpdatedAt", now,
                     "activityHistory", FieldValue.arrayUnion(activity(actor, "LEGAL_REVIEW_SAVED", "Legal policy checklist saved.", now))));
+            batch.set(db.collection("candidates").document(requestId),Map.of("legalRisk",overallRisk,"updatedAt",now),SetOptions.merge());
+            batch.create(db.collection("workflowEvents").document(),event(requestId,"LEGAL_RISK_CALCULATED",actor,"Legal policy risk calculated as "+overallRisk+".",now));
             batch.commit().get();
             return get(requestId, auth);
         } catch (ResponseStatusException e) { throw e; }
@@ -215,7 +218,8 @@ public class LegalReviewService {
     private DocumentSnapshot requireRequest(String id)throws Exception{DocumentSnapshot d=db().collection("hiringRequests").document(id).get().get();if(!d.exists())throw notFound("Hiring request not found: "+id);return d;}
     private Map<String,Object> actor(Firestore db,Authentication auth)throws Exception{DocumentSnapshot u=db.collection("users").document(auth.getName()).get().get();return Map.of("uid",auth.getName(),"name",Optional.ofNullable(u.getString("displayName")).orElse("Legal Reviewer"),"role","LEGAL");}
     private Map<String,Object> activity(Map<String,Object>a,String action,String details,Timestamp at){return Map.of("action",action,"performedBy",a.get("uid"),"performedByName",a.get("name"),"details",details,"timestamp",at);}
-    private void writeAudit(Firestore db,String id,Map<String,Object>a,LegalChangeRequest r,String target,Timestamp at)throws Exception{db.collection("auditLogs").document().create(Map.of("requestId",id,"candidateId",id,"action","LEGAL_CHANGES_REQUESTED","performedBy",a.get("uid"),"performedByName",a.get("name"),"timestamp",at,"metadata",Map.of("policyId",normalize(r.policyId()),"targetDepartment",target,"reason",r.reason()))).get();}
+    private Map<String,Object> event(String id,String type,Map<String,Object>a,String details,Timestamp at){return Map.of("requestId",id,"candidateId",id,"eventType",type,"action",type,"department","LEGAL","performedByUserId",a.get("uid"),"performedBy",a.get("uid"),"performedByName",a.get("name"),"details",details,"timestamp",at);}
+    private void writeAudit(Firestore db,String id,Map<String,Object>a,LegalChangeRequest r,String target,Timestamp at)throws Exception{Map<String,Object>e=new HashMap<>(event(id,"LEGAL_CHANGES_REQUESTED",a,r.reason(),at));e.put("metadata",Map.of("policyId",normalize(r.policyId()),"targetDepartment",target,"reason",r.reason()));db.collection("workflowEvents").document().create(e).get();}
     @SuppressWarnings("unchecked") private List<Map<String,Object>> maps(Object v){if(!(v instanceof List<?> l))return List.of();return l.stream().filter(Map.class::isInstance).map(x->(Map<String,Object>)x).toList();}
     private String normalize(String v){return Objects.toString(v,"").trim().toUpperCase(Locale.ROOT).replaceAll("[ -]+","_");}
     private Firestore db(){return FirestoreClient.getFirestore();}

@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
 import com.google.firebase.cloud.FirestoreClient;
 import com.google.cloud.firestore.Query;
+import com.google.cloud.firestore.FieldValue;
 import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -24,21 +25,7 @@ public class AuthController {
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
     private static final String ACCESS_DENIED = "Access Denied\nYou are not an authorized NovaOS employee.";
 
-    private ResponseEntity<?> processVerification(String idToken, HttpServletRequest request) {
-        // Dev-safe logging: record masked token previews (never log full tokens)
-        try {
-            String authHeader = request.getHeader("Authorization");
-            String bodyPreview = idToken != null && idToken.length() > 12 ? idToken.substring(0,6) + "..." + idToken.substring(idToken.length()-6) : idToken;
-            String headerPreview = null;
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                String token = authHeader.substring(7).trim();
-                headerPreview = token.length() > 12 ? token.substring(0,6) + "..." + token.substring(token.length()-6) : token;
-            }
-            logger.info("Auth verify called - idTokenPreview={}, authHeaderPreview={}", bodyPreview, headerPreview);
-        } catch (Exception e) {
-            // don't fail verification due to logging
-            logger.debug("Could not compute token preview: {}", e.getMessage());
-        }
+    private ResponseEntity<?> processVerification(String idToken, boolean recordAccess, HttpServletRequest request) {
         if (idToken == null || idToken.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Missing Firebase ID Token"));
         }
@@ -73,7 +60,7 @@ public class AuthController {
                     // Reload the UID document reference
                     document = FirestoreClient.getFirestore().collection("users").document(uid).get().get();
                 } else {
-                    writeAuditLog(decodedToken, null, "Login", "Denied", request, ACCESS_DENIED);
+                    writeAccessAudit(decodedToken, null, "DENIED", request, ACCESS_DENIED);
                     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", ACCESS_DENIED));
                 }
             }
@@ -82,25 +69,27 @@ public class AuthController {
             String role = document.getString("role");
 
             if (activeVal == null || !activeVal) {
-                writeAuditLog(decodedToken, document, "Login", "Denied", request, "Inactive account");
+                writeAccessAudit(decodedToken, document, "DENIED", request, "Inactive account");
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(Map.of("message", "Access Denied\nYour NovaOS employee account is inactive."));
             }
             if (role == null || role.trim().isEmpty()) {
-                writeAuditLog(decodedToken, document, "Login", "Denied", request, "Missing role");
+                writeAccessAudit(decodedToken, document, "DENIED", request, "Missing role");
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(Map.of("message", "Access Denied\nYour NovaOS employee account has no assigned role."));
             }
 
             String normalizedRole = normalizeRole(role);
             if (normalizedRole.isBlank()) {
-                writeAuditLog(decodedToken, document, "Login", "Denied", request, "Invalid role");
+                writeAccessAudit(decodedToken, document, "DENIED", request, "Invalid role");
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(Map.of("message", "Access Denied\nYour NovaOS employee account has an invalid role."));
             }
 
             Map<String, Object> profile = toProfile(document, decodedToken, normalizedRole);
-            writeAuditLog(decodedToken, document, "Login", "Success", request, "Session created");
+            if (recordAccess) {
+                writeAccessAudit(decodedToken, document, "SUCCESS", request, "Authenticated session established");
+            }
             return ResponseEntity.ok(Map.of(
                     "token", idToken,
                     "user", profile
@@ -113,14 +102,14 @@ public class AuthController {
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<?> verifyToken(@RequestBody Map<String, String> requestBody, HttpServletRequest request) {
-        return processVerification(requestBody.get("idToken"), request);
+    public ResponseEntity<?> verifyToken(@RequestBody Map<String, Object> requestBody, HttpServletRequest request) {
+        return processVerification((String) requestBody.get("idToken"), Boolean.TRUE.equals(requestBody.get("recordAccess")), request);
     }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> requestBody, HttpServletRequest request) {
         String token = requestBody.get("idToken") != null ? requestBody.get("idToken") : requestBody.get("token");
-        return processVerification(token, request);
+        return processVerification(token, true, request);
     }
 
     @PostMapping("/logout")
@@ -195,19 +184,23 @@ public class AuthController {
         return value != null && !value.isBlank() ? value : fallback;
     }
 
-    private void writeAuditLog(FirebaseToken token, DocumentSnapshot userDoc, String action, String status,
+    private void writeAccessAudit(FirebaseToken token, DocumentSnapshot userDoc, String status,
                                HttpServletRequest request, String details) {
+        if (!"SUCCESS".equals(status)) return;
         try {
             Map<String, Object> log = new HashMap<>();
-            log.put("timestamp", Instant.now().toString());
-            log.put("user", token.getEmail());
-            log.put("uid", token.getUid());
+            log.put("eventType", "LOGIN");
+            log.put("timestamp", FieldValue.serverTimestamp());
+            log.put("userId", token.getUid());
+            log.put("userEmail", token.getEmail());
+            log.put("userName", userDoc != null
+                    ? valueOrFallback(userDoc.getString("displayName"), userDoc.getString("name"))
+                    : token.getName());
             log.put("role", userDoc != null ? normalizeRole(userDoc.getString("role")) : null);
-            log.put("action", action);
             log.put("status", status);
             log.put("ip", clientIp(request));
             log.put("details", details);
-            FirestoreClient.getFirestore().collection("auditLogs").add(log).get();
+            FirestoreClient.getFirestore().collection("accessAuditLogs").add(log).get();
         } catch (Exception e) {
             logger.warn("Could not write auth audit log: {}", e.getMessage());
         }

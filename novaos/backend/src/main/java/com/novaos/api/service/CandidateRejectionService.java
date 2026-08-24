@@ -24,10 +24,13 @@ public class CandidateRejectionService {
 
     private final ResendEmailService emailService;
     private final OfferLetterPdfService pdfService;
+    private final ReviewNotificationService reviewNotifications;
 
-    public CandidateRejectionService(ResendEmailService emailService, OfferLetterPdfService pdfService) {
+    public CandidateRejectionService(ResendEmailService emailService, OfferLetterPdfService pdfService,
+                                     ReviewNotificationService reviewNotifications) {
         this.emailService = emailService;
         this.pdfService = pdfService;
+        this.reviewNotifications = reviewNotifications;
     }
 
     public Map<String, Object> reject(String requestId, RejectCandidateRequest request, Authentication auth) {
@@ -43,8 +46,6 @@ public class CandidateRejectionService {
             db.runTransaction(transaction -> {
                 DocumentSnapshot candidate = transaction.get(ref).get();
                 if (!candidate.exists()) throw notFound("Hiring request not found: " + requestId);
-                DocumentReference workflowRef = db.collection("workflowRequests").document(requestId);
-                DocumentSnapshot workflow = transaction.get(workflowRef).get();
                 String status = candidate.getString("status");
                 if ("REJECTED".equals(status)) throw conflict("Candidate has already been rejected.");
                 if (COMPLETED.contains(status)) throw conflict("A completed hiring workflow cannot be rejected.");
@@ -79,15 +80,17 @@ public class CandidateRejectionService {
                 updates.put("activityHistory", FieldValue.arrayUnion(activity("CANDIDATE_REJECTED", actor,
                         "Candidate rejected by " + title(department) + "; workflow terminated.", now)));
                 transaction.update(ref, updates);
-                if (workflow.exists()) transaction.update(workflowRef, Map.of(
-                        "state", "FAILED", "lastCompletedState", "FAILED", "updatedAt", now.toString()));
-
-                DocumentReference audit = db.collection("auditLogs").document();
-                transaction.create(audit, audit(requestId, "CANDIDATE_REJECTED", actor, department,
+                transaction.set(db.collection("candidates").document(requestId),Map.of(
+                        "currentStatus","REJECTED","currentStage","TERMINATED","updatedAt",now),SetOptions.merge());
+                DocumentReference audit = db.collection("workflowEvents").document();
+                transaction.create(audit, audit(requestId, department+"_REJECTED", actor, department,
                         Map.of("previousStatus", Objects.toString(status, ""), "newStatus", "REJECTED"), now));
+                transaction.create(db.collection("workflowEvents").document(),audit(requestId,"WORKFLOW_TERMINATED",actor,department,
+                        Map.of("reason","Candidate rejected by "+department),now));
                 return null;
             }).get();
 
+            reviewNotifications.cancelForRequest(requestId);
             sendNotification(db, ref, requestId, actor, false);
             return response(ref);
         } catch (ResponseStatusException error) {
@@ -151,6 +154,9 @@ public class CandidateRejectionService {
         byte[] pdfBytes = null;
         String safeName = sanitize(candidate.getString("candidateName"));
         String filename = "NovaOS_Rejection_Letter_" + safeName + ".pdf";
+        db.collection("emailNotifications").document(requestId+"-rejection").set(Map.of(
+                "candidateId",requestId,"requestId",requestId,"type","REJECTION","recipient",Objects.toString(candidate.getString("candidateEmail"),""),
+                "status","SENDING","provider","RESEND","attemptedAt",attemptedAt,"attemptCount",attempt),SetOptions.merge()).get();
         try {
             pdfBytes = pdfService.generateRejection(candidate.getData());
             if (!"GENERATED".equals(candidate.getString("rejectionLetterStatus"))) {
@@ -158,8 +164,8 @@ public class CandidateRejectionService {
                 Map<String,Object> document = new LinkedHashMap<>();
                 document.put("requestId", requestId); document.put("candidateId", requestId);
                 document.put("candidateName", candidate.getString("candidateName")); document.put("candidateEmail", candidate.getString("candidateEmail"));
-                document.put("documentType", "REJECTION_LETTER"); document.put("generatedAt", generatedAt);
-                document.put("documentFileName", filename); document.put("emailStatus", "PENDING");
+                document.put("documentType", "REJECTION_LETTER"); document.put("status","GENERATED"); document.put("generatedAt", generatedAt);
+                document.put("documentFileName", filename); document.put("fileName",filename);document.put("fileUrl","/api/hiring/requests/"+requestId+"/rejection-letter");document.put("emailStatus", "PENDING");
                 WriteBatch batch = db.batch();
                 batch.update(ref, Map.of("rejectionLetterStatus", "GENERATED", "rejectionPdfUrl", "/api/hiring/requests/"+requestId+"/rejection-letter",
                         "rejectionPdfFileName", filename, "rejectionPdfGeneratedAt", generatedAt,
@@ -179,6 +185,9 @@ public class CandidateRejectionService {
                     "rejectionEmailStatus", "SENT", "rejectionEmailSentAt", sentAt,
                     "activityHistory", FieldValue.arrayUnion(activity("REJECTION_EMAIL_SENT", actor, "Rejection email delivered with PDF attachment.", sentAt)))).get();
             db.collection("documents").document(requestId+"-rejection").set(Map.of("emailStatus","SENT","emailSentAt",sentAt,"emailMessageId",receipt.messageId()),SetOptions.merge()).get();
+            db.collection("emailNotifications").document(requestId+"-rejection").set(Map.of(
+                    "candidateId",requestId,"requestId",requestId,"type","REJECTION","recipient",Objects.toString(candidate.getString("candidateEmail"),""),
+                    "status","SENT","provider",receipt.provider(),"messageId",receipt.messageId(),"sentAt",sentAt,"attemptCount",attempt),SetOptions.merge()).get();
             writeAudit(db, requestId, "REJECTION_EMAIL_SENT", actor,
                     Map.of("provider", "RESEND", "messageId", receipt.messageId(), "retry", retry), sentAt);
         } catch (Exception error) {
@@ -194,6 +203,9 @@ public class CandidateRejectionService {
             failure.put("activityHistory", FieldValue.arrayUnion(activity("REJECTION_EMAIL_FAILED", actor, "Candidate remains rejected; document/email processing failed.", failedAt)));
             ref.update(failure).get();
             db.collection("documents").document(requestId+"-rejection").set(Map.of("emailStatus","FAILED","emailErrorCode",code,"emailErrorMessage",safeError),SetOptions.merge()).get();
+            db.collection("emailNotifications").document(requestId+"-rejection").set(Map.of(
+                    "candidateId",requestId,"requestId",requestId,"type","REJECTION","recipient",Objects.toString(candidate.getString("candidateEmail"),""),
+                    "status","FAILED","provider","RESEND","lastError",safeError,"attemptCount",attempt,"updatedAt",failedAt),SetOptions.merge()).get();
             writeAudit(db, requestId, "REJECTION_EMAIL_FAILED", actor,
                     Map.of("errorCode", code, "retry", retry), failedAt);
         } finally { if (pdfBytes != null) Arrays.fill(pdfBytes, (byte)0); }
@@ -259,7 +271,7 @@ public class CandidateRejectionService {
     private Map<String, Object> audit(String id, String action, Map<String, Object> actor, String department,
                                       Map<String, Object> metadata, Timestamp at) {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("requestId", id); value.put("candidateId", id); value.put("action", action);
+        value.put("requestId", id); value.put("candidateId", id); value.put("action", action);value.put("eventType",action);
         value.put("department", department); value.put("performedBy", actor.get("uid"));
         value.put("performedByName", actor.get("name")); value.put("timestamp", at); value.put("metadata", metadata);
         return value;
@@ -267,7 +279,7 @@ public class CandidateRejectionService {
 
     private void writeAudit(Firestore db, String id, String action, Map<String, Object> actor,
                             Map<String, Object> metadata, Timestamp at) throws Exception {
-        db.collection("auditLogs").document().create(audit(id, action, actor,
+        db.collection("workflowEvents").document().create(audit(id, action, actor,
                 Objects.toString(actor.get("role"), ""), metadata, at)).get();
     }
 

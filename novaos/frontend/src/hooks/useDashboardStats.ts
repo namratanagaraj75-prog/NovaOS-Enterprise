@@ -17,7 +17,7 @@ export interface DashboardMetrics {
 }
 
 export function useDashboardStats(): DashboardMetrics {
-  const { hiringRequests, candidates, employees } = useAppContext();
+  const { hiringRequests, candidates, employees, documents, emailNotifications } = useAppContext();
   const { user } = useAuth();
 
   return useMemo(() => {
@@ -32,19 +32,7 @@ export function useDashboardStats(): DashboardMetrics {
     }).length;
 
     // 2. Total Candidates
-    // Unique candidates by email from candidates collection and hiringRequests
-    const candidateEmails = new Set<string>();
-    candidates.forEach(c => {
-      if (c.email) {
-        candidateEmails.add(c.email.toLowerCase().trim());
-      }
-    });
-    hiringRequests.forEach(d => {
-      if (d.candidateEmail) {
-        candidateEmails.add(d.candidateEmail.toLowerCase().trim());
-      }
-    });
-    const totalCandidatesCount = candidateEmails.size || candidates.length;
+    const totalCandidatesCount = candidates.length;
 
     // 3. Pending Approvals (role-aware)
     const userRole = (user?.role || '').toUpperCase();
@@ -67,19 +55,10 @@ export function useDashboardStats(): DashboardMetrics {
 
     // 4. Offers Generated
     // Count when a request has genuinely generated a PDF
-    const offersCount = hiringRequests.filter(d => 
-      d.pdfUrl || 
-      d.pdfGeneratedAt || 
-      d.offerLetterStatus === 'GENERATED' || 
-      ['OFFER_GENERATED', 'EMAIL_SENDING', 'EMAIL_SENT', 'WORKFLOW_COMPLETED'].includes(d.status)
-    ).length;
+    const offersCount = documents.filter(d => d.documentType === 'OFFER_LETTER' && d.status === 'GENERATED').length;
 
     // 5. Emails Sent
-    const emailsCount = hiringRequests.filter(d => 
-      d.emailStatus === 'SENT' || 
-      d.status === 'EMAIL_SENT' || 
-      d.emailSentAt
-    ).length;
+    const emailsCount = emailNotifications.filter(d => d.type === 'OFFER' && d.status === 'SENT').length;
 
     // 6. Employees Created
     // Unique employee emails/IDs from employees collection and completed hiring requests
@@ -173,5 +152,5 @@ export function useDashboardStats(): DashboardMetrics {
       blocked: blockedCount,
       averageApprovalHours
     };
-  }, [hiringRequests, candidates, employees, user]);
+  }, [hiringRequests, candidates, employees, documents, emailNotifications, user]);
 }

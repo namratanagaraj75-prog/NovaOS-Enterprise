@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
-import { collection, onSnapshot, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer } from 'react';
+import { and, collection, limit, onSnapshot, or, orderBy, query, where } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 import { db } from '../lib/firebase';
 import apiClient from '../services/api';
@@ -7,11 +7,11 @@ import { normalizeDate, formatNormalizedDate } from '../lib/dateUtils';
 import { Candidate } from '../services/recruitmentService';
 import { WorkflowState, WorkflowStep } from '../services/workflowService';
 import { HiringRequest } from '../services/hiringRequestService';
-import { API_HEALTH_URL } from '../config/api';
 
 export type LoadingKey = 'app' | 'dashboard' | 'commandCenter' | 'pipeline' | 'workflow' | 'intelligence';
 export interface AppActivity { id: string; message: string; sub?: string; time: string; timestamp: string; type: 'info' | 'success' | 'warning' | 'error'; requestId?: string; actorName?: string }
-export interface AppNotification { id: string; message: string; sub?: string; createdAt: string; type: AppActivity['type']; read: boolean; requestId?: string }
+export interface AppNotification { id: string; message: string; sub?: string; createdAt: string; type: AppActivity['type']; notificationType?: string; read: boolean; requestId?: string; targetRole?: string; targetUserId?: string; workflowStage?: string }
+export interface AccessAudit { id: string; userName: string; userEmail: string; role: string; timestamp: string; time: string }
 export interface KPIs { totalCandidates: number; pendingApprovals: number; offersSent: number; employeesCreated: number; executionsToday: number }
 export interface AppState {
   currentUser: ReturnType<typeof useAuth>['user'];
@@ -23,10 +23,12 @@ export interface AppState {
   selectedCandidateId: string | null;
   activities: AppActivity[];
   notifications: AppNotification[];
+  recentAccess: AccessAudit[];
+  documents: Array<Record<string, any>>;
+  emailNotifications: Array<Record<string, any>>;
   kpis: KPIs;
   executionsToday: number;
   backendOnline: boolean;
-  backendConnecting: boolean;
   lastSync: string | null;
   hydrated: boolean;
   loading: Record<LoadingKey, boolean>;
@@ -40,13 +42,16 @@ type Action =
   | { type: 'HIRING_REQUESTS'; payload: HiringRequest[] }
   | { type: 'ACTIVITIES'; payload: AppActivity[] }
   | { type: 'NOTIFICATIONS'; payload: AppNotification[] }
+  | { type: 'RECENT_ACCESS'; payload: AccessAudit[] }
+  | { type: 'DOCUMENTS'; payload: Array<Record<string, any>> }
+  | { type: 'EMAIL_NOTIFICATIONS'; payload: Array<Record<string, any>> }
   | { type: 'NOTIFY'; payload: AppNotification }
   | { type: 'SELECT'; payload: string | null }
 
   | { type: 'ONLINE'; payload: boolean }
-  | { type: 'BACKEND_CONNECTING' }
   | { type: 'LOADING'; payload: { key: LoadingKey; value: boolean } }
-  | { type: 'READ'; payload?: string };
+  | { type: 'READ'; payload?: string }
+  | { type: 'READ_REQUEST'; payload: string };
 
 const initialState: AppState = {
   currentUser: null,
@@ -58,10 +63,12 @@ const initialState: AppState = {
   selectedCandidateId: null,
   activities: [],
   notifications: [],
+  recentAccess: [],
+  documents: [],
+  emailNotifications: [],
   kpis: { totalCandidates: 0, pendingApprovals: 0, offersSent: 0, employeesCreated: 0, executionsToday: 0 },
   executionsToday: 0,
   backendOnline: false,
-  backendConnecting: true,
   lastSync: null,
   hydrated: false,
   loading: { app: true, dashboard: false, commandCenter: false, pipeline: false, workflow: false, intelligence: false },
@@ -125,14 +132,13 @@ const candidateFromHiringRequest = (request: HiringRequest): Candidate => {
 };
 
 const mergeCandidates = (legacy: Candidate[], requests: HiringRequest[]) => {
-  const requestCandidates = requests.map(candidateFromHiringRequest);
-  const requestEmails = new Set(requestCandidates.map(candidate => candidate.email.toLowerCase()).filter(Boolean));
-  return [...requestCandidates, ...legacy.filter(candidate => !requestCandidates.some(item => item.id === candidate.id)
-    && (!candidate.email || !requestEmails.has(candidate.email.toLowerCase())))];
+  const requestsByCandidateId=new Map(requests.map(request=>[String((request as any).candidateId||request.id),request]));
+  return legacy.map(candidate=>{const request=requestsByCandidateId.get(candidate.id);if(!request)return candidate;
+    return {...candidateFromHiringRequest(request),...candidate,status:pipelineStatus(request),currentStatus:request.status,hiringRequest:request};});
 };
 
-const stageOrder = ['APPLIED', 'POLICY_REVIEWED', 'MANAGER_PENDING', 'MANAGER_APPROVED', 'LEGAL_PENDING',
-  'LEGAL_APPROVED', 'FINANCE_PENDING', 'FINANCE_APPROVED', 'OFFER_GENERATING', 'OFFER_GENERATED',
+const stageOrder = ['APPLIED', 'POLICY_REVIEWED', 'MANAGER_PENDING', 'MANAGER_APPROVED', 'FINANCE_PENDING',
+  'FINANCE_APPROVED', 'LEGAL_PENDING', 'LEGAL_APPROVED', 'OFFER_GENERATING', 'OFFER_GENERATED',
   'EMAIL_PENDING', 'EMAIL_SENT', 'EMPLOYEE_CREATED'];
 
 const workflowFrom = (data: any): WorkflowState => {
@@ -142,8 +148,8 @@ const workflowFrom = (data: any): WorkflowState => {
     ['intake', 'Request Intake', 'APPLIED'],
     ['policy', 'Policy Review', 'POLICY_REVIEWED'],
     ['manager', 'Manager Approval', 'MANAGER_APPROVED'],
-    ['legal', 'Legal Approval', 'LEGAL_APPROVED'],
     ['finance', 'Finance Approval', 'FINANCE_APPROVED'],
+    ['legal', 'Legal Approval', 'LEGAL_APPROVED'],
     ['offer', 'Offer Generation', 'OFFER_GENERATED'],
     ['email', 'Email Delivery', 'EMAIL_SENT'],
     ['employee', 'Employee Creation', 'EMPLOYEE_CREATED'],
@@ -210,15 +216,8 @@ const deriveKpis = (state: AppState): KPIs => {
   const candidates = state.candidates || [];
   const employees = state.employees || [];
   
-  // 1. Total Candidates (unique email addresses from candidates and hiringRequests)
-  const candidateEmails = new Set<string>();
-  candidates.forEach(c => {
-    if (c.email) candidateEmails.add(c.email.toLowerCase().trim());
-  });
-  hiringRequests.forEach(d => {
-    if (d.candidateEmail) candidateEmails.add(d.candidateEmail.toLowerCase().trim());
-  });
-  const totalCandidatesCount = candidateEmails.size || candidates.length;
+  // candidates is the canonical source; IDs are shared with hiringRequests.
+  const totalCandidatesCount = candidates.length;
 
   // 2. Pending Approvals (for HrAdmin/SuperAdmin, count all pending)
   const pendingApprovalsCount = hiringRequests.filter(d => 
@@ -226,12 +225,7 @@ const deriveKpis = (state: AppState): KPIs => {
   ).length;
 
   // 3. Offers Sent (Offers Generated)
-  const offersSentCount = hiringRequests.filter(d => 
-    d.pdfUrl || 
-    d.pdfGeneratedAt || 
-    d.offerLetterStatus === 'GENERATED' || 
-    ['OFFER_GENERATED', 'EMAIL_SENDING', 'EMAIL_SENT', 'WORKFLOW_COMPLETED'].includes(d.status)
-  ).length;
+  const offersSentCount = state.emailNotifications.filter(d => d.type === 'OFFER' && d.status === 'SENT').length;
 
   // 4. Employees Created
   const employeeEmails = new Set<string>();
@@ -267,7 +261,10 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'USER': return { ...state, currentUser: action.payload };
     case 'CANDIDATES': {
-      const next = { ...state, legacyCandidates: action.payload, candidates: mergeCandidates(action.payload, state.hiringRequests), hydrated: true, loading: { ...state.loading, app: false } };
+      const merged=mergeCandidates(action.payload,state.hiringRequests);
+      const next = { ...state, legacyCandidates: action.payload, candidates: merged,
+        employees: merged.filter(c=>['EMPLOYEE_CREATED','Employee Created','HIRED','Hired'].includes(String(c.currentStatus||c.status))),
+        hydrated: true, loading: { ...state.loading, app: false } };
       return { ...next, kpis: deriveKpis(next) };
     }
     case 'EMPLOYEES': {
@@ -286,12 +283,15 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case 'ACTIVITIES': return { ...state, activities: action.payload };
     case 'NOTIFICATIONS': return { ...state, notifications: action.payload };
+    case 'RECENT_ACCESS': return { ...state, recentAccess: action.payload };
+    case 'DOCUMENTS': { const next={...state,documents:action.payload};return {...next,kpis:deriveKpis(next)}; }
+    case 'EMAIL_NOTIFICATIONS': return { ...state, emailNotifications: action.payload };
     case 'NOTIFY': return { ...state, notifications: [action.payload, ...state.notifications].slice(0, 50) };
     case 'SELECT': return { ...state, selectedCandidateId: action.payload };
-    case 'ONLINE': return { ...state, backendOnline: action.payload, backendConnecting: false, lastSync: new Date().toISOString() };
-    case 'BACKEND_CONNECTING': return { ...state, backendConnecting: true };
+    case 'ONLINE': return { ...state, backendOnline: action.payload, lastSync: new Date().toISOString() };
     case 'LOADING': return { ...state, loading: { ...state.loading, [action.payload.key]: action.payload.value } };
     case 'READ': return { ...state, notifications: state.notifications.map(n => ({ ...n, read: action.payload ? n.read || n.id === action.payload : true })) };
+    case 'READ_REQUEST': return { ...state, notifications: state.notifications.map(n => ({ ...n, read: n.read || n.requestId === action.payload })) };
   }
 }
 
@@ -311,6 +311,7 @@ interface Value extends AppState {
   addActivity: (message: string, sub?: string, type?: AppActivity['type']) => void;
   notify: (message: string, type?: AppActivity['type'], sub?: string) => void;
   markNotificationRead: (id?: string) => void;
+  markReviewNotificationRead: (requestId: string) => void;
   refreshDashboard: () => Promise<void>;
   setBackendOnline: (online: boolean) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
@@ -321,8 +322,6 @@ const AppContext = createContext<Value | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { user } = useAuth();
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   const notify = useCallback((message: string, type: AppActivity['type'] = 'info', sub?: string) => {
     dispatch({ type: 'NOTIFY', payload: { id: crypto.randomUUID(), message, sub, type, createdAt: new Date().toISOString(), read: false } });
@@ -341,15 +340,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dispatch({ type: 'LOADING', payload: { key: 'app', value: false } });
       notify('Firestore connection failed', 'error', error.message);
     };
+    const notificationQuery = query(collection(db, 'notifications'), or(
+      where('targetUserId', '==', user.uid),
+      and(where('targetUserId', '==', null), where('targetRole', '==', user.role)),
+    ));
     const unsubscribers = [
       onSnapshot(collection(db, 'candidates'), snap => dispatch({ type: 'CANDIDATES',
-        payload: snap.docs.map(item => candidateFrom(item.id, item.data())) }), fail),
-      onSnapshot(collection(db, 'employees'), snap => dispatch({ type: 'EMPLOYEES',
         payload: snap.docs.map(item => candidateFrom(item.id, item.data())) }), fail),
       onSnapshot(collection(db, 'hiringRequests'), snap => {
         dispatch({ type: 'HIRING_REQUESTS', payload: snap.docs.map(item => ({ id: item.id, ...item.data() })) as HiringRequest[] });
       }, fail),
-      onSnapshot(collection(db, 'auditLogs'), snap => dispatch({ type: 'ACTIVITIES', payload: snap.docs
+      onSnapshot(query(collection(db, 'workflowEvents'), orderBy('timestamp','desc'), limit(3)), snap => dispatch({ type: 'ACTIVITIES', payload: snap.docs
         .map(item => {
           const data = item.data();
           const d = normalizeDate(data.timestamp);
@@ -358,74 +359,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             timestamp, time: d ? formatNormalizedDate(d) : 'Time unavailable',
             type: String(data.action || '').includes('FAILED') ? 'error' : 'success', requestId: data.requestId,
             actorName: String(data.performedByName || data.actor?.name || '') } as AppActivity;
-        }).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50) }), fail),
-      onSnapshot(collection(db, 'notifications'), snap => dispatch({ type: 'NOTIFICATIONS', payload: snap.docs
-        .filter(item => !item.data().targetRole || item.data().targetRole === user.role)
+        }).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 3) }), fail),
+      onSnapshot(collection(db,'documents'),snap=>dispatch({type:'DOCUMENTS',payload:snap.docs.map(item=>({id:item.id,...item.data()}))}),fail),
+      onSnapshot(collection(db,'emailNotifications'),snap=>dispatch({type:'EMAIL_NOTIFICATIONS',payload:snap.docs.map(item=>({id:item.id,...item.data()}))}),fail),
+      onSnapshot(notificationQuery, snap => dispatch({ type: 'NOTIFICATIONS', payload: snap.docs
         .map(item => {
           const data = item.data();
-          const d = normalizeDate(data.timestamp);
+          const d = normalizeDate(data.createdAt || data.timestamp);
           const createdAt = d ? d.toISOString() : '';
           return { id: item.id, message: String(data.title || ''), sub: String(data.message || ''),
-            createdAt, type: 'info', read: Boolean(data.read), requestId: data.requestId } as AppNotification;
+            createdAt, type: 'info', notificationType: String(data.type || ''), read: Boolean(data.read),
+            requestId: data.requestId, targetRole: data.targetRole, targetUserId: data.targetUserId,
+            workflowStage: data.workflowStage } as AppNotification;
         }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }), fail),
+      onSnapshot(query(collection(db, 'accessAuditLogs'), orderBy('timestamp', 'desc'), limit(3)), snap =>
+        dispatch({ type: 'RECENT_ACCESS', payload: snap.docs.map(item => {
+          const data = item.data();
+          const d = normalizeDate(data.timestamp);
+          const timestamp = d ? d.toISOString() : '';
+          return { id: item.id, userName: String(data.userName || data.userEmail || 'NovaOS User'),
+            userEmail: String(data.userEmail || ''), role: String(data.role || ''), timestamp,
+            time: d ? formatNormalizedDate(d) : 'Time unavailable' } as AccessAudit;
+        }).filter(item => Boolean(item.timestamp)).slice(0, 3) }), fail),
     ];
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
   }, [user?.uid, user?.role, notify]);
 
   useEffect(() => {
     let previous: boolean | null = null;
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    let activeController: AbortController | undefined;
-
-    const wait = (milliseconds: number) => new Promise<void>(resolve => {
-      retryTimer = window.setTimeout(resolve, milliseconds);
-    });
-
-    const checkHealth = async () => {
-      activeController = new AbortController();
-      const timeout = window.setTimeout(() => activeController?.abort(), 30_000);
-      try {
-        const response = await fetch(API_HEALTH_URL, {
-          signal: activeController.signal,
-          credentials: 'omit',
-          cache: 'no-store',
-          headers: { Accept: 'application/json' },
-        });
-        return response.ok;
-      } catch {
-        return false;
-      } finally {
-        window.clearTimeout(timeout);
-        activeController = undefined;
-      }
-    };
-
+    let hasLoggedHealth = false;
     const ping = async () => {
       let online = false;
-      if (previous === null) dispatch({ type: 'BACKEND_CONNECTING' });
+      try {
+        const rawApiUrl = (import.meta.env.VITE_API_URL || "/api").replace(/^VITE_API_URL=/, "");
+        const API_BASE = rawApiUrl.replace(/\/$/, "");
+        const HEALTH_URL = `${API_BASE}/health`;
 
-      for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) {
-        online = await checkHealth();
-        if (online || attempt === 2) break;
-        await wait(3_000);
+        if (!hasLoggedHealth) {
+          console.log("API_BASE", API_BASE);
+          console.log("HEALTH_URL", HEALTH_URL);
+          hasLoggedHealth = true;
+        }
+
+        const res = await fetch(HEALTH_URL);
+        online = res.ok;
+      } catch {
+        online = false;
       }
-      if (cancelled) return;
-
       dispatch({ type: 'ONLINE', payload: online });
       if (previous !== online) {
         notify(online ? 'Backend Connected' : 'Backend Offline', online ? 'success' : 'warning',
           online ? 'Live services synchronized.' : 'Live hiring actions are paused until the backend reconnects.');
         previous = online;
       }
-      retryTimer = window.setTimeout(ping, 60_000);
     };
     ping();
-    return () => {
-      cancelled = true;
-      activeController?.abort();
-      if (retryTimer) window.clearTimeout(retryTimer);
-    };
+    const timer = window.setInterval(ping, 10000);
+    return () => window.clearInterval(timer);
   }, [notify]);
 
   const readOnlyNotice = useCallback(() => notify('Governed action required', 'warning',
@@ -447,19 +437,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addActivity: readOnlyNotice,
     notify,
     markNotificationRead: id => {
+      if (!id) return;
       dispatch({ type: 'READ', payload: id });
-      if (id) {
-        updateDoc(doc(db, 'notifications', id), { read: true }).catch(e => console.error("Failed to mark read in db", e));
-      } else {
-        const unreadList = stateRef.current.notifications.filter(n => !n.read);
-        if (unreadList.length > 0) {
-          const batch = writeBatch(db);
-          unreadList.forEach(n => {
-            batch.update(doc(db, 'notifications', n.id), { read: true });
-          });
-          batch.commit().catch(e => console.error("Failed to batch mark read in db", e));
-        }
-      }
+      apiClient.post(`/notifications/${encodeURIComponent(id)}/read`).catch(e =>
+        console.error("Failed to mark notification read", e));
+    },
+    markReviewNotificationRead: requestId => {
+      dispatch({ type: 'READ_REQUEST', payload: requestId });
+      apiClient.post(`/notifications/review/${encodeURIComponent(requestId)}/read`).catch(e =>
+        console.error("Failed to mark review notification read", e));
     },
     refreshDashboard: async () => undefined,
     setBackendOnline: online => dispatch({ type: 'ONLINE', payload: online }),

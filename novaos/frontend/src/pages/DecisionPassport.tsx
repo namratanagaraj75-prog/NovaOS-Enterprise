@@ -33,15 +33,14 @@ export const DecisionPassport: React.FC = () => {
     const merge = (key: string, value: unknown) => setData((current: any) => ({ ...(current || {}), [key]: value }));
     const failures = (err: Error) => setError('Firestore listener failed: ' + err.message);
     const unsubs = [
-      onSnapshot(doc(db, 'workflowRequests', requestId), snap => merge('workflow', snap.data() || {}), failures),
+      onSnapshot(doc(db, 'hiringRequests', requestId), snap => merge('workflow', snap.data() || {}), failures),
       onSnapshot(doc(db, 'candidates', requestId), snap => merge('candidate', snap.data() || {}), failures),
-      onSnapshot(doc(db, 'employees', requestId), snap => merge('employee', snap.data() || {}), failures),
-      onSnapshot(query(collection(db, 'approvals'), where('requestId', '==', requestId)),
-        snap => merge('approvals', snap.docs.map(item => item.data())), failures),
       onSnapshot(query(collection(db, 'documents'), where('requestId', '==', requestId)),
-        snap => merge('documents', snap.docs.map(item => item.data())), failures),
-      onSnapshot(query(collection(db, 'auditLogs'), where('requestId', '==', requestId)),
-        snap => merge('auditEvents', snap.docs.map(item => item.data())), failures),
+        snap => merge('documents', snap.docs.map(item => {const value=item.data();return {...value,documentId:item.id,type:value.documentType,status:value.status||value.emailStatus,deliveryStatus:value.emailStatus,offerId:value.fileName||value.documentFileName};})), failures),
+      onSnapshot(query(collection(db, 'workflowEvents'), where('requestId', '==', requestId)),
+        snap => {const events=snap.docs.map(item=>item.data());merge('auditEvents',events);merge('approvals',events.filter(item=>item.approverRole&&item.status==='APPROVED'));}, failures),
+      onSnapshot(doc(db,'legalReviews',requestId),snap=>merge('legalReview',snap.data()||{}),failures),
+      onSnapshot(doc(db,'emailNotifications',requestId+'-offer'),snap=>merge('emailNotification',snap.data()||{}),failures),
     ];
     return () => { alive = false; unsubs.forEach(unsubscribe => unsubscribe()); };
   }, [requestId]);

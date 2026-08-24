@@ -2,136 +2,74 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function userPath() {
-      return /databases/$(database)/documents/users/$(request.auth.uid);
-    }
-
-    function activeUser() {
-      return signedIn() && exists(userPath()) && get(userPath()).data.active == true;
-    }
-
-    function role() {
-      return get(userPath()).data.role;
-    }
-
-    function hasRole(expected) {
-      return activeUser() && role() == expected;
-    }
-
+    function signedIn() { return request.auth != null; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function activeUser() { return signedIn() && exists(userPath()) && get(userPath()).data.active == true; }
+    function role() { return get(userPath()).data.role; }
+    function hasRole(expected) { return activeUser() && role() == expected; }
     function hiringRole() {
-      return activeUser() && role() in [
-        'SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR',
-        'HIRING_MANAGER', 'MANAGER', 'LEGAL', 'FINANCE'
-      ];
+      return activeUser() && role() in ['SUPER_ADMIN','CEO','HR_ADMIN','HR','HIRING_MANAGER','MANAGER','LEGAL','FINANCE'];
     }
+    function legalRole() { return activeUser() && role() in ['SUPER_ADMIN','CEO','HR_ADMIN','HR','LEGAL']; }
+    function hrRole() { return activeUser() && role() in ['SUPER_ADMIN','CEO','HR_ADMIN','HR']; }
 
     match /users/{userId} {
-      allow get: if signedIn() && request.auth.uid == userId;
-      allow list: if hasRole('SUPER_ADMIN');
-      allow create: if false;
-      allow update, delete: if hasRole('SUPER_ADMIN');
+      allow get: if signedIn() && (request.auth.uid == userId || hasRole('SUPER_ADMIN'));
+      allow list, create, update, delete: if hasRole('SUPER_ADMIN');
     }
 
+    match /settings/{documentId} {
+      allow read: if hiringRole();
+      allow write: if false;
+    }
+    match /legalPolicies/{documentId} {
+      allow read: if legalRole();
+      allow write: if false;
+    }
+    match /accessAuditLogs/{documentId} {
+      allow read: if hiringRole();
+      allow write: if false;
+    }
     match /candidates/{documentId} {
       allow read: if hiringRole();
       allow write: if false;
     }
-
-    match /employees/{documentId} {
+    match /hiringRequests/{documentId} {
       allow read: if hiringRole();
       allow write: if false;
     }
-
-    match /workflowRequests/{documentId} {
+    match /workflowEvents/{documentId} {
       allow read: if hiringRole();
       allow write: if false;
     }
-
-    match /approvals/{documentId} {
-      allow read: if hiringRole();
+    match /notifications/{documentId} {
+      allow read: if activeUser() && (
+        resource.data.targetUserId == request.auth.uid ||
+        (resource.data.targetUserId == null && resource.data.targetRole == role())
+      );
       allow write: if false;
     }
-
+    match /legalReviews/{documentId} {
+      allow read: if legalRole();
+      allow write: if false;
+      match /history/{historyId} {
+        allow read: if legalRole();
+        allow write: if false;
+      }
+    }
+    match /candidateIntelligence/{documentId} {
+      allow read: if hrRole();
+      allow write: if false;
+    }
     match /documents/{documentId} {
       allow read: if hiringRole();
       allow write: if false;
     }
-
-    match /auditLogs/{documentId} {
+    match /emailNotifications/{documentId} {
       allow read: if hiringRole();
       allow write: if false;
     }
 
-    match /notifications/{documentId} {
-      allow read: if hiringRole();
-      allow update: if hiringRole() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow create, delete: if false;
-    }
-
-    match /aiRequests/{documentId} {
-      allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR'];
-      allow write: if false;
-    }
-
-    match /policies/{documentId} {
-      allow read: if hiringRole();
-      allow write: if false;
-    }
-
-    match /metrics/{documentId} {
-      allow read: if hiringRole();
-      allow write: if false;
-    }
-
-    match /offers/{documentId} {
-      allow read: if hiringRole();
-      allow write: if false;
-    }
-
-    match /workflows/{documentId} {
-      allow read: if hiringRole();
-      allow write: if false;
-    }
-
-    match /hiringRequests/{documentId} {
-      allow read: if hiringRole() && (
-        role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'FINANCE', 'LEGAL']
-        || ((role() == 'HIRING_MANAGER' || role() == 'MANAGER') && resource.data.hiringManagerId == request.auth.uid));
-      allow update: if activeUser() && (
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
-        || (
-          role() == resource.data.currentApproverRole
-          && (role() != 'HIRING_MANAGER' || resource.data.hiringManagerId == request.auth.uid)
-        )
-      );
-      allow create, delete: if false;
-    }
-
-    match /legalPolicies/{documentId} {
-      allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
-      allow write: if false;
-    }
-
-    match /legalReviews/{documentId} {
-      allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
-      allow write: if false;
-      match /history/{historyId} {
-        allow read: if activeUser() && role() in ['SUPER_ADMIN', 'CEO', 'HR_ADMIN', 'HR', 'LEGAL'];
-        allow write: if false;
-      }
-    }
-
-    match /accessRequests/{documentId} {
-      allow create: if false;
-      allow read, update, delete: if hasRole('SUPER_ADMIN');
-    }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

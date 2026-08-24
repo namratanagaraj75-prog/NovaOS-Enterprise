@@ -10,7 +10,7 @@ Rejections run only through Spring Boot. A successful rejection terminates the w
 
 Legal reviewers complete a versioned policy checklist before approval. Mandatory unresolved policies block approval, and policy-specific changes can be routed to HR or Finance. Super Admins manage policies at `/admin/legal-policies`; review history retains policy snapshots.
 
-New Firestore data uses `hiringRequests.candidateEmailNotification`, `legalPolicies`, `legalReviews` (plus `history`), and `auditLogs`. New APIs are rooted at `/api/hiring/requests/{id}/reject`, `/api/hiring/requests/{id}/rejection-email/retry`, `/api/legal/policies`, and `/api/legal/reviews/{id}`.
+Current Firestore data uses canonical `candidates` and `hiringRequests` IDs, `workflowEvents`, `notifications`, `legalPolicies`, `legalReviews` (plus version history), `candidateIntelligence`, `documents`, and `emailNotifications`. APIs are rooted at `/api/hiring/requests`, `/api/hiring/passports`, `/api/legal/policies`, and `/api/legal/reviews/{id}`.
 
 The backend reads `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and optional `RESEND_FROM_NAME`. Missing credentials leave the application running and mark the notification `FAILED`.
 
@@ -463,3 +463,12 @@ This project is developed for educational, research, and hackathon purposes.
 <p align="center">
 Built with ❤️ using React, Spring Boot, Firebase, and AI Automation.
 </p>
+# Controlled demo-data reset
+
+The backend includes a disabled-by-default, startup-only Firestore reset utility. Run it locally from `novaos/backend` only when a full hiring-data reset is intended:
+
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--novaos.demo-reset.enabled=true"
+```
+
+Stop the backend after `DemoResetRunner: reset complete` is printed. The utility clears transactional hiring data and obsolete Firestore documents, including `metrics`, `policies`, and `policyDocuments`. It preserves `users`, `legalPolicies`, `settings`, `accessAuditLogs`, and current access-management configuration, and it never calls Firebase Authentication. There is intentionally no reset HTTP endpoint or UI button.
